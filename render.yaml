@@ -1,0 +1,22 @@
+# Render Blueprint — one always-on Node service that builds the React app and
+# serves it alongside the /api proxy. Deploy: push this repo to GitHub, then in
+# Render → New → Blueprint, point at the repo.
+services:
+  - type: web
+    name: equity-valuation
+    runtime: node
+    plan: free # change to "starter" ($7/mo) to remove cold-start sleep
+    # --include=dev forces devDependencies (vite/tsc/tailwind) even if the host
+    # sets NODE_ENV=production, so the build doesn't fail.
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: node server/index.js
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      # Set these in the Render dashboard (they are secret — not stored in git).
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: AUTH_USER
+        sync: false
+      - key: AUTH_PASS
+        sync: false
