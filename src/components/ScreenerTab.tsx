@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { formatCurrency, formatPercent, parseInputValue } from '../utils/formatting';
 import { fetchTickerMetrics, runPool, TickerMetrics } from '../utils/tickerMetrics';
 import { CompanyLogo } from './CompanyLogo';
@@ -183,16 +183,31 @@ export function ScreenerTab({
   }, [universeKey, watchlistTickers, customTickers]);
 
   const running = progress != null && progress.done < progress.total;
+  const stopRef = useRef(false);
 
   const runScreen = async () => {
     if (!universe.length) return;
+    stopRef.current = false;
     setRows([]);
     setProgress({ done: 0, total: universe.length });
-    // Stream rows into the table as each ticker settles.
-    await runPool(universe, fetchTickerMetrics, 6, (_ticker, result) => {
-      if (result) setRows((prev) => [...prev, result]);
-      setProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
-    });
+    // Stream rows into the table as each ticker settles; stop dispatching new
+    // fetches as soon as the user hits Stop.
+    await runPool(
+      universe,
+      fetchTickerMetrics,
+      6,
+      (_ticker, result) => {
+        if (result) setRows((prev) => [...prev, result]);
+        setProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
+      },
+      () => stopRef.current
+    );
+    // Clear the "running" state whether it finished or was stopped early.
+    setProgress((p) => (p ? { ...p, total: p.done } : p));
+  };
+
+  const stopScreen = () => {
+    stopRef.current = true;
   };
 
   // Apply active filters.
@@ -291,6 +306,15 @@ export function ScreenerTab({
           >
             {running ? `Screening… ${progress!.done}/${progress!.total}` : 'Run Screen'}
           </button>
+          {running && (
+            <button
+              onClick={stopScreen}
+              className="px-3 py-1.5 text-xs rounded-md bg-red-600 text-white hover:bg-red-500 transition-colors"
+              title="Stop the screen — keeps the results fetched so far"
+            >
+              ■ Stop
+            </button>
+          )}
           {universeKey === 'watchlist' && watchlistTickers.length === 0 && (
             <span className="text-[11px] text-amber-500/80">Your watchlists are empty.</span>
           )}

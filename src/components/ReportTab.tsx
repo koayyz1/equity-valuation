@@ -14,6 +14,7 @@ import { formatCurrency, formatDate, currencySymbol } from '../utils/formatting'
 import {
   computeEarningsYield,
   computeAverageROIC,
+  computeROCE,
   calculateDCF,
 } from '../utils/calculations';
 import { DCFAssumptions, Overrides } from '../types';
@@ -271,12 +272,15 @@ interface KeyMetrics {
   marketCap: number | null;
   roic5y: number | null;
   roic1y: number | null;
+  roce: number | null;
   roe5y: number | null;
   fcfYield: number | null;
   fcfGrowth: number | null;
   fcfGrowth5y: number | null;
   earningsYield: number | null;
   epsGrowthNext: number | null;
+  dividendPerShare: number | null;
+  dividendYield: number | null;
   currentPrice: number | null;
   analystTarget: number | null;
   analystCount: number | null;
@@ -298,6 +302,8 @@ function KeyMetricsTable({
     v == null || Number.isNaN(v)
       ? '—'
       : `${currencySymbol(currency)}${v.toFixed(2)}`;
+  const fmtDps = (v: number | null) =>
+    v == null || Number.isNaN(v) ? '—' : `${currencySymbol(currency)}${v.toFixed(2)}`;
 
   const pctToPrice = (v: number | null) =>
     v != null && metrics.currentPrice != null && metrics.currentPrice > 0
@@ -306,18 +312,20 @@ function KeyMetricsTable({
   const fmtSignedPct = (v: number | null) =>
     v == null ? '—' : `${v >= 0 ? '+' : ''}${(v * 100).toFixed(1)}%`;
 
-  // Quality & growth tiles: 9 tiles in a 3-col grid (drops ROCE — it differs
-  // from ROIC only by excess cash in the denominator and adds no decision value).
+  // Quality & growth tiles: 12 tiles in a 6-column grid (6×2).
   const qualityRows: { label: string; display: string }[] = [
     { label: 'Market Cap', display: fmtCur(metrics.marketCap) },
     { label: 'ROIC (5Y)', display: fmtPct(metrics.roic5y) },
     { label: 'ROIC (1Y)', display: fmtPct(metrics.roic1y) },
+    { label: 'ROCE', display: fmtPct(metrics.roce) },
     { label: 'ROE (5Y)', display: fmtPct(metrics.roe5y) },
     { label: 'FCF Yield', display: fmtPct(metrics.fcfYield) },
     { label: 'FCF Growth', display: fmtPct(metrics.fcfGrowth) },
     { label: 'FCF Growth (5Y)', display: fmtPct(metrics.fcfGrowth5y) },
     { label: 'Earnings Yield', display: fmtPct(metrics.earningsYield) },
     { label: 'EPS Growth Next Yr', display: fmtPct(metrics.epsGrowthNext) },
+    { label: 'Dividend / Share', display: fmtDps(metrics.dividendPerShare) },
+    { label: 'Dividend Yield', display: fmtPct(metrics.dividendYield) },
   ];
 
   // Fair-value strip: analyst consensus vs your own DCF (Lynch dropped — it's a
@@ -343,7 +351,7 @@ function KeyMetricsTable({
       </div>
 
       <div className={`${eyebrow} mb-1.5`}>Quality &amp; Growth</div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         {qualityRows.map((r) => (
           <div
             key={r.label}
@@ -800,6 +808,26 @@ export function ReportTab({
       computeEarningsYield(ttmNetIncome, marketCap) ??
       computeEarningsYield(financials?.netIncome ?? null, marketCap);
 
+    // ROCE = NOPAT / (Invested Capital + excess cash).
+    const roce = computeROCE({
+      ebit: financials?.ebit ?? null,
+      taxRate: financials?.taxRate ?? null,
+      investedCapital: financials?.investedCapital ?? null,
+      cash: financials?.cash ?? null,
+      revenue: financials?.revenue ?? null,
+    });
+
+    // Dividend per share (latest fiscal year) and dividend yield.
+    const latestAnnual = annualRows[0];
+    const dividendPerShare =
+      latestAnnual?.quarterlyDividendsPaid != null &&
+      latestAnnual.quarterlyDividendsPaid > 0 &&
+      latestAnnual.quarterlySharesOutstanding
+        ? latestAnnual.quarterlyDividendsPaid / latestAnnual.quarterlySharesOutstanding
+        : null;
+    const dividendYield =
+      dividendPerShare != null && price != null && price > 0 ? dividendPerShare / price : null;
+
     // Your DCF (MOS): run the DCF with the Valuation tab's current assumptions
     // and any user overrides, on this tab's fetched financials.
     let myIVMOS: number | null = null;
@@ -823,12 +851,15 @@ export function ReportTab({
       marketCap,
       roic5y,
       roic1y: financials?.roic ?? null,
+      roce,
       roe5y: estimates?.roe5y ?? null,
       fcfYield,
       fcfGrowth,
       fcfGrowth5y: financials?.fcfCAGR ?? null,
       earningsYield,
       epsGrowthNext: estimates?.epsGrowthNextYear ?? null,
+      dividendPerShare,
+      dividendYield,
       currentPrice: price,
       analystTarget: estimates?.targetMeanPrice ?? null,
       analystCount: estimates?.numberOfAnalysts ?? null,

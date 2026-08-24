@@ -112,10 +112,12 @@ export async function runPool<T, R>(
   items: T[],
   worker: (item: T) => Promise<R>,
   concurrency: number,
-  onResult: (item: T, result: R | null) => void
+  onResult: (item: T, result: R | null) => void,
+  shouldStop?: () => boolean
 ): Promise<void> {
   let i = 0;
   async function next(): Promise<void> {
+    if (shouldStop?.()) return;
     const idx = i++;
     if (idx >= items.length) return;
     try {
@@ -123,6 +125,7 @@ export async function runPool<T, R>(
     } catch {
       onResult(items[idx], null);
     }
+    if (shouldStop?.()) return;
     return next();
   }
   await Promise.all(

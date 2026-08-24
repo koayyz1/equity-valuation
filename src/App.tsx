@@ -49,7 +49,7 @@ const baseAssumptions: DCFAssumptions = {
   netBorrowingOverrides: [null, null, null, null, null],
 };
 
-type Tab = 'detail' | 'watchlist' | 'report' | 'deepdive' | 'methodology' | 'screener' | 'portfolio';
+type Tab = 'home' | 'detail' | 'watchlist' | 'report' | 'deepdive' | 'methodology' | 'screener' | 'portfolio';
 
 // Rail-style tab: quiet text with a bottom indicator bar instead of a filled
 // pill, so blue-600 fill stays reserved for primary actions.
@@ -87,7 +87,7 @@ export default function App() {
   // Per-ticker computed defaults — used by DCFModel for right-click reset.
   const [defaultAssumptions, setDefaultAssumptions] =
     useState<DCFAssumptions>(baseAssumptions);
-  const [activeTab, setActiveTab] = useState<Tab>('detail');
+  const [activeTab, setActiveTab] = useState<Tab>('home');
   const [shareCopied, setShareCopied] = useState(false);
   // Keep the user-built, ticker-independent tabs (Screener, Portfolio) mounted
   // once visited so switching away and back doesn't discard their state and
@@ -146,8 +146,9 @@ export default function App() {
       setOverrides({});
       setAssumptions(baseAssumptions); // temporary until financials arrive
       fetchCompany(ticker);
-      // Don't force a tab switch here — the header search bar drives both the
-      // Analysis and Report tabs and the user stays on whichever tab is active.
+      // Leave the current analysis tab alone — except the Home landing, which
+      // should hand off to General once a ticker is chosen.
+      setActiveTab((t) => (t === 'home' ? 'report' : t));
     },
     [fetchCompany]
   );
@@ -231,8 +232,10 @@ export default function App() {
           </div>
           <SearchBar onSearch={handleSearch} loading={loading} />
 
-          {/* Tab rail — grouped: analysis | portfolio tools (docs lives right) */}
+          {/* Tab rail — Home | analysis | portfolio tools (docs lives right) */}
           <nav className="flex items-stretch ml-2 self-stretch -my-3">
+            <TabButton label="Home" active={activeTab === 'home'} onClick={() => setActiveTab('home')} />
+            <div className="w-px h-4 bg-gray-800 mx-1.5 self-center" />
             <TabButton label="General" active={activeTab === 'report'} onClick={() => setActiveTab('report')} />
             <TabButton label="Valuation" active={activeTab === 'detail'} onClick={() => setActiveTab('detail')} />
             <TabButton label="Deep Dive" active={activeTab === 'deepdive'} onClick={() => setActiveTab('deepdive')} />
@@ -302,6 +305,32 @@ export default function App() {
       </header>
 
       <main className="max-w-[1600px] mx-auto px-5 py-5 space-y-5">
+        {/* ── Home / welcome ── */}
+        {activeTab === 'home' && (
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <IconTrendingUp size={52} className="mb-5 text-gray-700" />
+            <h2 className="text-gray-200 text-2xl font-semibold mb-2">Enter a ticker to begin</h2>
+            <p className="text-gray-500 text-sm max-w-md leading-relaxed mb-6">
+              Search any US-listed company. Financials pull live from SEC EDGAR's XBRL API, with
+              Yahoo Finance for prices.
+            </p>
+            <div className="w-full max-w-md flex">
+              <SearchBar onSearch={handleSearch} loading={loading} />
+            </div>
+            <div className="mt-6 flex flex-wrap gap-2 justify-center max-w-xl">
+              {['AAPL', 'MSFT', 'GOOGL', 'META', 'NVDA', 'ASML', 'SIRI', 'BRK.B'].map((t) => (
+                <button
+                  key={t}
+                  onClick={() => handleSearch(t)}
+                  className="px-3 py-1 bg-gray-900 hover:bg-gray-800 border border-gray-800 rounded-md text-xs font-mono text-gray-300"
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <Suspense
           fallback={
             <div className="flex items-center justify-center py-24 text-gray-600 text-sm">

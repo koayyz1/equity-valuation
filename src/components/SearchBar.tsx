@@ -79,7 +79,7 @@ export function SearchBar({ onSearch, loading = false }: SearchBarProps) {
   };
 
   return (
-    <div ref={containerRef} className="relative flex-1 max-w-2xl">
+    <div ref={containerRef} className="relative flex-1 max-w-sm">
       <form onSubmit={handleSubmit} className="flex gap-2">
         <div className="relative flex-1">
           <input

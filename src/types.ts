@@ -129,5 +129,6 @@ export interface PortfolioPosition {
   ticker: string;
   shares: number;
   costBasis: number; // per-share average cost
+  purchaseDate?: string; // YYYY-MM-DD — needed for TWRR / MWRR
   addedAt: number;
 }

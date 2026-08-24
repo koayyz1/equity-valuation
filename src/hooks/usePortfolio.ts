@@ -35,13 +35,13 @@ export function usePortfolio() {
     });
   }, []);
 
-  // Upsert by ticker (re-adding a held name overwrites shares/cost).
+  // Upsert by ticker (re-adding a held name overwrites shares/cost/date).
   const upsert = useCallback(
-    (ticker: string, shares: number, costBasis: number) => {
+    (ticker: string, shares: number, costBasis: number, purchaseDate?: string) => {
       const T = ticker.toUpperCase();
       mutate((prev) => {
         const rest = prev.filter((p) => p.ticker !== T);
-        return [...rest, { ticker: T, shares, costBasis, addedAt: Date.now() }];
+        return [...rest, { ticker: T, shares, costBasis, purchaseDate, addedAt: Date.now() }];
       });
     },
     [mutate]
