@@ -101,7 +101,9 @@ export async function searchCompanies(query) {
 const factsCache = new Map(); // padded CIK -> { t, data }
 const factsInflight = new Map(); // padded CIK -> Promise
 const FACTS_TTL_MS = 30 * 60 * 1000;
-const FACTS_MAX = 24; // cap heap — each entry is a parsed multi-MB payload
+// Each entry is a parsed multi-MB payload; keep the cap low so the whole app
+// stays comfortably under a 512 MB (free-tier) memory limit.
+const FACTS_MAX = 8;
 
 export async function getCompanyFacts(cikRaw) {
   const padded = String(cikRaw).padStart(10, '0');

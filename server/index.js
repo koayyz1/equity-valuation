@@ -23,6 +23,16 @@ import {
 } from './price.js';
 import { withCache, TTL } from './cache.js';
 
+// Keep the process alive through a stray async error from a flaky upstream
+// (SEC/Yahoo). Crashing would restart the instance and produce exactly the
+// intermittent edge "Not Found" 404s we're trying to avoid — log and continue.
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason instanceof Error ? reason.stack || reason.message : reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err?.stack || err?.message || err);
+});
+
 const app = express();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST_DIR = path.join(__dirname, '..', 'dist');

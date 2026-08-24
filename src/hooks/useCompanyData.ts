@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { CompanyInfo, FinancialData, PriceData } from '../types';
+import { fetchJson } from '../utils/fetchJson';
 
 const API_BASE = '/api';
 
@@ -28,12 +29,11 @@ export function useCompanyData(): UseCompanyDataReturn {
     setPriceData(null);
 
     try {
-      const companyRes = await fetch(`${API_BASE}/company/${encodeURIComponent(ticker)}`);
-      if (!companyRes.ok) {
-        const body = await companyRes.json().catch(() => ({}));
-        throw new Error(body.error || `Company lookup failed (${companyRes.status})`);
-      }
-      const company = await companyRes.json();
+      // fetchJson retries transient edge/cold-start blips (the "Not Found" 404s)
+      // and only surfaces genuine app errors (e.g. a real "ticker not found").
+      const company = await fetchJson<{ cik: string; name: string }>(
+        `${API_BASE}/company/${encodeURIComponent(ticker)}`
+      );
       const info: CompanyInfo = {
         ticker: ticker.toUpperCase(),
         cik: company.cik,
@@ -42,17 +42,12 @@ export function useCompanyData(): UseCompanyDataReturn {
       setCompanyInfo(info);
 
       // Fetch financials and price in parallel
-      const [finRes, priceRes] = await Promise.all([
-        fetch(`${API_BASE}/financials/${company.cik}?ticker=${encodeURIComponent(ticker)}`),
-        fetch(`${API_BASE}/price/${encodeURIComponent(ticker)}`),
+      const [fin, price] = await Promise.all([
+        fetchJson<FinancialData>(
+          `${API_BASE}/financials/${company.cik}?ticker=${encodeURIComponent(ticker)}`
+        ),
+        fetchJson<PriceData>(`${API_BASE}/price/${encodeURIComponent(ticker)}`),
       ]);
-
-      if (!finRes.ok) {
-        const body = await finRes.json().catch(() => ({}));
-        throw new Error(body.error || `Financials fetch failed (${finRes.status})`);
-      }
-
-      const [fin, price] = await Promise.all([finRes.json(), priceRes.json()]);
       setFinancials(fin);
       setPriceData(price);
     } catch (err) {
