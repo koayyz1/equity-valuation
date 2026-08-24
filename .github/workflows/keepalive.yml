@@ -1,0 +1,35 @@
+name: Keep Render awake
+
+# Pings the deployed health endpoint on a schedule so the free-tier Render
+# service doesn't spin down after 15 minutes of inactivity (which causes the
+# intermittent cold-start "Not Found" 404s). /api/health is exempt from the
+# password gate, so no secrets are needed.
+#
+# Note: GitHub's scheduled runs can be delayed or skipped under load, and
+# scheduled workflows are auto-disabled after ~60 days with no repo activity.
+# If cold starts persist, a dedicated uptime monitor (UptimeRobot / cron-job.org)
+# is more reliable.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *' # every ~10 minutes
+  workflow_dispatch: {} # allow manual runs from the Actions tab
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping health endpoint
+        run: |
+          URL="https://equity-valuation.onrender.com/api/health"
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 120 "$URL" || echo "000")
+            echo "attempt $i -> HTTP $code"
+            [ "$code" = "200" ] && exit 0
+            sleep 20
+          done
+          # A cold start can take a while; the request itself already woke the
+          # service. Don't fail the job (avoids failure-email spam).
+          echo "did not get 200, but the ping still poked the service"
+          exit 0
