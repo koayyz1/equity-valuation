@@ -256,8 +256,9 @@ export default function App() {
             />
           </nav>
 
-          {/* Right side: contextual actions + Docs link */}
-          <div className="ml-auto flex items-center gap-2">
+          {/* Right side: contextual actions + Docs link. No ml-auto — the search
+              bar's flex-grow fills the space instead, pushing the tabs right. */}
+          <div className="flex items-center gap-2">
             {hasData && activeTab === 'detail' && (
               <>
                 <button
