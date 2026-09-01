@@ -78,8 +78,12 @@ async function generateContent(apiKey, baseBody, { backoffMs = 1500 } = {}) {
         usedModel = model;
         break outer;
       }
-      // Transient → try again / next model; anything else (400 bad key, 403…) is fatal.
+      // Anything not transient (400 bad key, 403, 404 retired model…) is fatal.
       if (![503, 429, 504, 0].includes(result.status)) break outer;
+      // Rate/quota limited: retrying the same model won't clear in a couple
+      // seconds — fail over to the next model immediately, no wasted backoff.
+      if (result.status === 429) break;
+      // Overload / timeout / network blip: one quick retry on the same model.
       if (attempt === 0) await new Promise((r) => setTimeout(r, backoffMs));
     }
   }
