@@ -25,7 +25,9 @@ import { dirname, join } from 'path';
 })();
 
 // Try in order; fall back if a model is overloaded (503) or quota-exhausted (429).
-const MODEL_CHAIN = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite'];
+// Kept to the 2.5 family: gemini-2.0-flash was retired (404s), and the newer
+// gemini-3.x models / "latest" aliases have no free-tier quota (immediate 429).
+const MODEL_CHAIN = ['gemini-2.5-flash', 'gemini-2.5-flash-lite'];
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
 const REQUEST_TIMEOUT_MS = 30_000; // fail over instead of hanging on a stalled call
 
