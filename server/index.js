@@ -63,7 +63,12 @@ if (AUTH_PASS) {
   });
 }
 
-app.get('/api/health', (_req, res) => res.json({ ok: true }));
+// Health check doubles as a deploy-version probe: RENDER_GIT_COMMIT is set by
+// Render for each build, so `commit` tells you exactly which build is live.
+const BUILD_COMMIT = process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || 'dev';
+app.get('/api/health', (_req, res) =>
+  res.json({ ok: true, commit: BUILD_COMMIT, node: process.version })
+);
 
 // Ticker -> CIK + company name
 app.get('/api/company/:ticker', async (req, res) => {

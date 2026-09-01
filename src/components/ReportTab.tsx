@@ -23,6 +23,7 @@ import { ValuationBands, computeValuationBands } from './ValuationBands';
 import { TenYearTrends } from './TenYearTrends';
 import { ShareholderReturns } from './ShareholderReturns';
 import { BalanceSheetResilience } from './BalanceSheetResilience';
+import { FcfDrivers } from './FcfDrivers';
 import { IconChart } from './icons';
 
 type RangeKey = '1D' | '5D' | '1M' | '6M' | 'YTD' | '1Y' | '5Y' | 'MAX';
@@ -98,6 +99,7 @@ interface ProfileResponse {
 interface FinancialsResponse {
   shares: number | null;
   netIncome: number | null;
+  cfo: number | null;
   cash: number | null;
   revenue: number | null;
   ebit: number | null;
@@ -274,7 +276,7 @@ interface KeyMetrics {
   roic1y: number | null;
   roce: number | null;
   roe5y: number | null;
-  fcfYield: number | null;
+  fcfeYield: number | null;
   fcfGrowth: number | null;
   fcfGrowth5y: number | null;
   earningsYield: number | null;
@@ -319,7 +321,7 @@ function KeyMetricsTable({
     { label: 'ROIC (1Y)', display: fmtPct(metrics.roic1y) },
     { label: 'ROCE', display: fmtPct(metrics.roce) },
     { label: 'ROE (5Y)', display: fmtPct(metrics.roe5y) },
-    { label: 'FCF Yield', display: fmtPct(metrics.fcfYield) },
+    { label: 'FCFE Yield', display: fmtPct(metrics.fcfeYield) },
     { label: 'FCF Growth', display: fmtPct(metrics.fcfGrowth) },
     { label: 'FCF Growth (5Y)', display: fmtPct(metrics.fcfGrowth5y) },
     { label: 'Earnings Yield', display: fmtPct(metrics.earningsYield) },
@@ -781,11 +783,14 @@ export function ReportTab({
     const priorTtmFCF = sumLast4(ttmQuarters, 4, 'quarterlyFreeCashFlow');
     const ttmNetIncome = sumLast4(ttmQuarters, 0, 'quarterlyNetIncome');
 
-    const fcfYield =
-      ttmFCF != null && marketCap != null && marketCap > 0
-        ? ttmFCF / marketCap
+    // FCFE Yield = FCFE / Market Cap, using the same FCFE the Valuation tab uses
+    // (CFO + CapEx + Net Borrowing) so the two tabs agree.
+    const fcfeYield =
+      financials?.fcfe != null && marketCap != null && marketCap > 0
+        ? financials.fcfe / marketCap
         : null;
 
+    // FCF growth still tracks TTM FCF (CFO + CapEx) year-over-year.
     const fcfGrowth =
       ttmFCF != null && priorTtmFCF != null && priorTtmFCF !== 0
         ? (ttmFCF - priorTtmFCF) / Math.abs(priorTtmFCF)
@@ -853,7 +858,7 @@ export function ReportTab({
       roic1y: financials?.roic ?? null,
       roce,
       roe5y: estimates?.roe5y ?? null,
-      fcfYield,
+      fcfeYield,
       fcfGrowth,
       fcfGrowth5y: financials?.fcfCAGR ?? null,
       earningsYield,
@@ -870,6 +875,24 @@ export function ReportTab({
   // TTM free cash flow for the balance-sheet resilience panel.
   const ttmFCF = useMemo(
     () => sumLast4(ttmQuarters, 0, 'quarterlyFreeCashFlow'),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ttmQuarters]
+  );
+
+  // TTM-vs-prior cash-flow components for the FCFE Drivers attribution.
+  const fcfFlows = useMemo(
+    () => ({
+      ttm: {
+        cfo: sumLast4(ttmQuarters, 0, 'quarterlyOperatingCashFlow'),
+        capex: sumLast4(ttmQuarters, 0, 'quarterlyCapitalExpenditure'),
+        fcf: sumLast4(ttmQuarters, 0, 'quarterlyFreeCashFlow'),
+      },
+      prior: {
+        cfo: sumLast4(ttmQuarters, 4, 'quarterlyOperatingCashFlow'),
+        capex: sumLast4(ttmQuarters, 4, 'quarterlyCapitalExpenditure'),
+        fcf: sumLast4(ttmQuarters, 4, 'quarterlyFreeCashFlow'),
+      },
+    }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [ttmQuarters]
   );
@@ -1379,6 +1402,20 @@ export function ReportTab({
               </div>
             )}
           </div>
+
+          {/* FCFE drivers — composition + what moved it */}
+          {financials && (
+            <FcfDrivers
+              cfo={financials.cfo}
+              capex={financials.capex}
+              netBorrowing={financials.netBorrowing}
+              fcfe={financials.fcfe}
+              marketCap={keyMetrics.marketCap}
+              currency={currency}
+              ttm={fcfFlows.ttm}
+              prior={fcfFlows.prior}
+            />
+          )}
 
           {/* Long-term (decade-scale) trends */}
           {annualRows.length >= 4 && (
