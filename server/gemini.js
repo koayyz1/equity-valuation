@@ -27,8 +27,65 @@ import { dirname, join } from 'path';
 // Try in order; fall back if a model is overloaded (503) or quota-exhausted (429).
 const MODEL_CHAIN = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.5-flash-lite'];
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6h
+const REQUEST_TIMEOUT_MS = 30_000; // fail over instead of hanging on a stalled call
 
 const cache = new Map();
+
+// Shared request runner: walks MODEL_CHAIN, retries transient failures once with
+// a backoff, aborts any single call that exceeds REQUEST_TIMEOUT_MS, and disables
+// the 2.5 models' "thinking" phase (big latency win for these grounded summaries;
+// only the 2.5 family accepts thinkingConfig — sending it to 2.0-flash 400s).
+async function generateContent(apiKey, baseBody, { backoffMs = 1500 } = {}) {
+  let result = null;
+  let usedModel = null;
+  outer: for (const model of MODEL_CHAIN) {
+    const body = model.startsWith('gemini-2.5')
+      ? {
+          ...baseBody,
+          generationConfig: {
+            ...(baseBody.generationConfig || {}),
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }
+      : baseBody;
+    const url =
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent` +
+      `?key=${encodeURIComponent(apiKey)}`;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
+      try {
+        const res = await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+          signal: ctrl.signal,
+        });
+        result = { ok: res.ok, status: res.status, text: await res.text() };
+      } catch (err) {
+        // Our abort surfaces as AbortError; anything else is a network fault.
+        result = {
+          ok: false,
+          status: err.name === 'AbortError' ? 504 : 0,
+          text: err.message || 'network error',
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+      if (result.ok) {
+        usedModel = model;
+        break outer;
+      }
+      // Transient → try again / next model; anything else (400 bad key, 403…) is fatal.
+      if (![503, 429, 504, 0].includes(result.status)) break outer;
+      if (attempt === 0) await new Promise((r) => setTimeout(r, backoffMs));
+    }
+  }
+  if (!result?.ok) {
+    throw new Error(`Gemini API ${result?.status}: ${(result?.text || '').slice(0, 300)}`);
+  }
+  return { data: JSON.parse(result.text), usedModel: usedModel || MODEL_CHAIN[0] };
+}
 
 export async function getCompanySummaryGemini(ticker, companyName) {
   const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -51,43 +108,12 @@ export async function getCompanySummaryGemini(ticker, companyName) {
     `short bullet points (one sentence each), each ending with the source date in ` +
     `(MMM D, YYYY) format. No preamble or sign-off.`;
 
-  const body = {
+  const baseBody = {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     tools: [{ google_search: {} }],
   };
 
-  // Walk MODEL_CHAIN — on 503/429 try the next model. Each model also gets
-  // one retry after a short backoff in case a single overload spike was brief.
-  let res = null;
-  let errText = '';
-  let usedModel = null;
-  outer: for (const model of MODEL_CHAIN) {
-    const url =
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent` +
-      `?key=${encodeURIComponent(apiKey)}`;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      res = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) {
-        usedModel = model;
-        break outer;
-      }
-      errText = await res.text();
-      if (res.status !== 503 && res.status !== 429) break outer; // non-transient
-      if (attempt === 0) {
-        await new Promise((r) => setTimeout(r, 1500));
-      }
-    }
-  }
-
-  if (!res?.ok) {
-    throw new Error(`Gemini API ${res?.status}: ${errText.slice(0, 300)}`);
-  }
-
-  const data = await res.json();
+  const { data, usedModel } = await generateContent(apiKey, baseBody, { backoffMs: 1500 });
   const candidate = data.candidates?.[0];
   const text = (candidate?.content?.parts || [])
     .map((p) => p.text)
@@ -167,35 +193,13 @@ export async function getCompanyDeepDive(ticker, section, companyName, force = f
   const subject = companyName ? `${companyName} (${ticker.toUpperCase()})` : ticker.toUpperCase();
   const prompt = promptFn(subject);
 
-  const body = {
+  const baseBody = {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
     tools: [{ google_search: {} }],
     generationConfig: { maxOutputTokens: 8192 },
   };
 
-  let res = null;
-  let errText = '';
-  let usedModel = null;
-  outer: for (const model of MODEL_CHAIN) {
-    const url =
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent` +
-      `?key=${encodeURIComponent(apiKey)}`;
-    for (let attempt = 0; attempt < 2; attempt++) {
-      res = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) { usedModel = model; break outer; }
-      errText = await res.text();
-      if (res.status !== 503 && res.status !== 429) break outer;
-      if (attempt === 0) await new Promise((r) => setTimeout(r, 2000));
-    }
-  }
-
-  if (!res?.ok) throw new Error(`Gemini API ${res?.status}: ${errText.slice(0, 300)}`);
-
-  const data = await res.json();
+  const { data, usedModel } = await generateContent(apiKey, baseBody, { backoffMs: 2000 });
   const text = (data.candidates?.[0]?.content?.parts || [])
     .map((p) => p.text).filter(Boolean).join('\n').trim();
 
