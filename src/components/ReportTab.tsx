@@ -64,6 +64,9 @@ interface QuarterRow {
   quarterlyOperatingCashFlow: number | null;
   quarterlyFreeCashFlow: number | null;
   quarterlyCapitalExpenditure: number | null;
+  quarterlyDepreciationAmortization: number | null;
+  quarterlyDebtIssued: number | null;
+  quarterlyDebtRepaid: number | null;
   quarterlyDividendsPaid: number | null;
   quarterlyTotalAssets: number | null;
   quarterlyTotalDebt: number | null;
@@ -772,6 +775,17 @@ export function ReportTab({
     return vals.reduce<number>((a, b) => a + (b as number), 0);
   };
 
+  // Zero-fill variant for lumpy fields (debt issuance/repayment don't appear in
+  // quarters with no activity, so a missing quarter means 0, not "unknown").
+  // Null only when the 4-quarter window isn't fully available.
+  const sumLast4Zero = (rows: QuarterRow[], offset: number, field: keyof QuarterRow) => {
+    if (rows.length < offset + 4) return null;
+    return rows.slice(offset, offset + 4).reduce<number>((a, q) => {
+      const v = q[field] as number | null;
+      return a + (v != null && !Number.isNaN(v) ? v : 0);
+    }, 0);
+  };
+
   const keyMetrics = useMemo(() => {
     const price = priceData?.price ?? history?.price ?? null;
     const shares = priceData?.sharesOutstanding ?? financials?.shares ?? null;
@@ -879,23 +893,23 @@ export function ReportTab({
     [ttmQuarters]
   );
 
-  // TTM-vs-prior cash-flow components for the FCFE Drivers attribution.
-  const fcfFlows = useMemo(
-    () => ({
-      ttm: {
-        cfo: sumLast4(ttmQuarters, 0, 'quarterlyOperatingCashFlow'),
-        capex: sumLast4(ttmQuarters, 0, 'quarterlyCapitalExpenditure'),
-        fcf: sumLast4(ttmQuarters, 0, 'quarterlyFreeCashFlow'),
-      },
-      prior: {
-        cfo: sumLast4(ttmQuarters, 4, 'quarterlyOperatingCashFlow'),
-        capex: sumLast4(ttmQuarters, 4, 'quarterlyCapitalExpenditure'),
-        fcf: sumLast4(ttmQuarters, 4, 'quarterlyFreeCashFlow'),
-      },
-    }),
+  // TTM-vs-prior cash-flow components for the FCFE Drivers attribution, plus the
+  // sub-drivers that explain *why* each line moved (CFO bridge, capex intensity,
+  // debt raised/repaid). Debt flows are lumpy so use the zero-fill sum.
+  const fcfFlows = useMemo(() => {
+    const window = (offset: number) => ({
+      cfo: sumLast4(ttmQuarters, offset, 'quarterlyOperatingCashFlow'),
+      capex: sumLast4(ttmQuarters, offset, 'quarterlyCapitalExpenditure'),
+      fcf: sumLast4(ttmQuarters, offset, 'quarterlyFreeCashFlow'),
+      netIncome: sumLast4(ttmQuarters, offset, 'quarterlyNetIncome'),
+      da: sumLast4(ttmQuarters, offset, 'quarterlyDepreciationAmortization'),
+      revenue: sumLast4(ttmQuarters, offset, 'quarterlyTotalRevenue'),
+      debtIssued: sumLast4Zero(ttmQuarters, offset, 'quarterlyDebtIssued'),
+      debtRepaid: sumLast4Zero(ttmQuarters, offset, 'quarterlyDebtRepaid'),
+    });
+    return { ttm: window(0), prior: window(4) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [ttmQuarters]
-  );
+  }, [ttmQuarters]);
 
   // Historical P/E and FCF-yield bands from rolling TTM windows × 5Y prices.
   const bands = useMemo(() => {
@@ -1210,6 +1224,20 @@ export function ReportTab({
             currency={currency}
           />
 
+          {/* FCFE drivers — composition, what moved it, and why */}
+          {financials && (
+            <FcfDrivers
+              cfo={financials.cfo}
+              capex={financials.capex}
+              netBorrowing={financials.netBorrowing}
+              fcfe={financials.fcfe}
+              marketCap={keyMetrics.marketCap}
+              currency={currency}
+              ttm={fcfFlows.ttm}
+              prior={fcfFlows.prior}
+            />
+          )}
+
           {/* Historical valuation bands */}
           {bands && <ValuationBands bands={bands} currency={currency} />}
 
@@ -1402,20 +1430,6 @@ export function ReportTab({
               </div>
             )}
           </div>
-
-          {/* FCFE drivers — composition + what moved it */}
-          {financials && (
-            <FcfDrivers
-              cfo={financials.cfo}
-              capex={financials.capex}
-              netBorrowing={financials.netBorrowing}
-              fcfe={financials.fcfe}
-              marketCap={keyMetrics.marketCap}
-              currency={currency}
-              ttm={fcfFlows.ttm}
-              prior={fcfFlows.prior}
-            />
-          )}
 
           {/* Long-term (decade-scale) trends */}
           {annualRows.length >= 4 && (

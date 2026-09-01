@@ -177,6 +177,13 @@ const METRIC_DEF = {
   DilutedEPS: { kind: 'flow', chain: TAG_CHAINS.dilutedEPS, isEps: true },
   OperatingCashFlow: { kind: 'flow', chain: TAG_CHAINS.cfo, ytd: true },
   CapitalExpenditure: { kind: 'flow', chain: TAG_CHAINS.capex, ytd: true, sign: -1 },
+  // D&A add-back — the largest non-cash bridge from net income to operating cash
+  // flow, used to explain *why* CFO moved. YTD like other cash-flow items.
+  DepreciationAmortization: { kind: 'flow', chain: TAG_CHAINS.da, ytd: true },
+  // Financing-section debt flows for the Net Borrowing breakdown. Issuance is an
+  // inflow (positive); repayment tags are positive magnitudes, so flip to negative.
+  DebtIssued: { kind: 'flow', chain: TAG_CHAINS.newDebt, ytd: true },
+  DebtRepaid: { kind: 'flow', chain: TAG_CHAINS.debtRepayment, ytd: true, sign: -1 },
   // Dividends paid (financing cash outflow; tag value is positive) — used for the
   // dividend/shareholder-yield panel. YTD like other cash-flow items.
   DividendsPaid: { kind: 'flow', chain: TAG_CHAINS.dividends, ytd: true },
