@@ -1241,6 +1241,9 @@ export function ReportTab({
             </div>
           </div>
 
+          {/* Recent moves — free Gemini summary with web-search grounding */}
+          <GeminiSummary ticker={ticker} />
+
           {/* Key metrics */}
           <KeyMetricsTable
             metrics={keyMetrics}
@@ -1264,9 +1267,6 @@ export function ReportTab({
 
           {/* Historical valuation bands */}
           {bands && <ValuationBands bands={bands} currency={currency} />}
-
-          {/* Recent moves — free Gemini summary with web-search grounding */}
-          <GeminiSummary ticker={ticker} />
 
           <SectionRule label="Fundamentals" />
 

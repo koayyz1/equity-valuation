@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { formatCurrency } from '../utils/formatting';
 
 interface Flow {
@@ -98,7 +99,11 @@ function Row({
   );
 }
 
-/** Panel shell for one driver in the "why it changed" stack. */
+/**
+ * Panel shell for one driver in the "why it changed" stack. Collapsed by default —
+ * the header alone carries the headline (driver, rank, year-over-year change) and
+ * expands to the full breakdown on click.
+ */
 function DriverPanel({
   title,
   delta,
@@ -106,6 +111,8 @@ function DriverPanel({
   currency,
   children,
   note,
+  open,
+  onToggle,
 }: {
   title: string;
   delta: number;
@@ -113,11 +120,19 @@ function DriverPanel({
   currency: string;
   children: React.ReactNode;
   note?: string;
+  open: boolean;
+  onToggle: () => void;
 }) {
   return (
-    <div className="bg-gray-950/40 border border-gray-800 rounded-lg p-3">
-      <div className="flex items-center justify-between gap-2 mb-2">
+    <div className="bg-gray-950/40 border border-gray-800 rounded-lg">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        className="w-full flex items-center justify-between gap-2 p-3 text-left hover:bg-gray-900/40 rounded-lg transition-colors"
+      >
         <div className="flex items-center gap-1.5 min-w-0">
+          <span className="text-gray-500 text-[10px] w-2.5 shrink-0">{open ? '▾' : '▸'}</span>
           <span className="text-[11px] font-semibold text-gray-200">{title}</span>
           {biggest && (
             <span className="shrink-0 text-[8px] font-semibold uppercase tracking-wide text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded px-1 py-px">
@@ -132,9 +147,13 @@ function DriverPanel({
         >
           {money(delta, currency)}
         </span>
-      </div>
-      {children}
-      {note && <p className="text-[10px] text-gray-400 leading-relaxed mt-2">{note}</p>}
+      </button>
+      {open && (
+        <div className="px-3 pb-3 -mt-0.5">
+          {children}
+          {note && <p className="text-[10px] text-gray-400 leading-relaxed mt-2">{note}</p>}
+        </div>
+      )}
     </div>
   );
 }
@@ -150,6 +169,10 @@ export function FcfDrivers({
   prior,
   prior2,
 }: Props) {
+  // Driver panels start collapsed; each expands independently.
+  const [openPanels, setOpenPanels] = useState<Record<string, boolean>>({});
+  const toggle = (k: string) => setOpenPanels((p) => ({ ...p, [k]: !p[k] }));
+
   const nb = netBorrowing ?? 0;
   const compMax = Math.max(
     Math.abs(cfo ?? 0),
@@ -546,6 +569,8 @@ export function FcfDrivers({
                 biggest={d.key === biggestKey}
                 currency={currency}
                 note={d.note}
+                open={!!openPanels[d.key]}
+                onToggle={() => toggle(d.key)}
               >
                 {d.render()}
               </DriverPanel>
