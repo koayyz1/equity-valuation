@@ -9,6 +9,7 @@ interface Flow {
   revenue: number | null;
   debtIssued: number | null;
   debtRepaid: number | null;
+  totalDebt: number | null;
 }
 
 interface Props {
@@ -171,7 +172,9 @@ export function FcfDrivers({
     });
   }
 
-  // Net borrowing: raised vs repaid (EDGAR financing flows). Only if there's activity.
+  // Net borrowing. Preferred: raised vs repaid from EDGAR financing flows (rich
+  // detail). Fallback: change in total debt from the balance sheet — universal,
+  // for filers whose cash-flow debt tags use maturity-bucketed names we don't sum.
   {
     const raisedT = ttm.debtIssued ?? 0;
     const repaidT = ttm.debtRepaid ?? 0;
@@ -179,8 +182,9 @@ export function FcfDrivers({
     const raisedP = prior.debtIssued ?? 0;
     const repaidP = prior.debtRepaid ?? 0;
     const nbP = raisedP + repaidP;
-    const activity = Math.abs(raisedT) + Math.abs(repaidT) + Math.abs(raisedP) + Math.abs(repaidP);
-    if (activity > 0) {
+    const cfActivity = Math.abs(raisedT) + Math.abs(repaidT) + Math.abs(raisedP) + Math.abs(repaidP);
+
+    if (cfActivity > 0) {
       drivers.push({
         key: 'nb',
         title: 'Net borrowing',
@@ -194,6 +198,28 @@ export function FcfDrivers({
           `${formatCurrency(Math.abs(nbT), currency)} (${formatCurrency(raisedT, currency)} raised, ` +
           `${formatCurrency(Math.abs(repaidT), currency)} repaid)` +
           (nbP !== 0 ? `, versus ${money(nbP, currency)} the prior year.` : '.'),
+      });
+    } else if (
+      ttm.totalDebt != null &&
+      prior.totalDebt != null &&
+      Math.abs(ttm.totalDebt) + Math.abs(prior.totalDebt) > 0
+    ) {
+      const dDebt = ttm.totalDebt - prior.totalDebt;
+      drivers.push({
+        key: 'nb',
+        title: 'Net borrowing',
+        delta: dDebt,
+        subs: [],
+        stat: {
+          label: 'Total debt',
+          from: formatCurrency(prior.totalDebt, currency),
+          to: formatCurrency(ttm.totalDebt, currency),
+        },
+        narrative:
+          `Total debt ${dDebt >= 0 ? 'rose' : 'fell'} from ${formatCurrency(prior.totalDebt, currency)} ` +
+          `to ${formatCurrency(ttm.totalDebt, currency)} — a net ${dDebt >= 0 ? 'borrowing' : 'repayment'} of ` +
+          `${formatCurrency(Math.abs(dDebt), currency)} over the year (from the balance sheet; this filer ` +
+          `doesn't break out debt issuance/repayment in a tag we capture).`,
       });
     }
   }

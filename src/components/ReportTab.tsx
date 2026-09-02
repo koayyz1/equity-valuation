@@ -906,6 +906,10 @@ export function ReportTab({
       revenue: sumLast4(ttmQuarters, offset, 'quarterlyTotalRevenue'),
       debtIssued: sumLast4Zero(ttmQuarters, offset, 'quarterlyDebtIssued'),
       debtRepaid: sumLast4Zero(ttmQuarters, offset, 'quarterlyDebtRepaid'),
+      // Instant balance: total debt at this window's most recent quarter, so
+      // ΔtotalDebt across windows is a universal net-borrowing proxy for filers
+      // whose cash-flow debt tags we don't capture.
+      totalDebt: (ttmQuarters[offset]?.quarterlyTotalDebt as number | null) ?? null,
     });
     return { ttm: window(0), prior: window(4) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
