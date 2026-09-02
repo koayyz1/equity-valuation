@@ -86,6 +86,11 @@ export interface DCFResult {
   dcfPrice: number | null;
   dcfPriceMOS: number | null;
   tvRatio: number | null;
+  // Present value split into the three additive terms of the closed-form DCF,
+  // computed from the actual (override-adjusted) discounted cash flows.
+  phase1PV: number; // growth phase: years 1..growthYears
+  phase2PV: number; // steady phase: years growthYears+1..10
+  terminalPV: number; // discounted terminal value
 }
 
 export interface FCFYResult {

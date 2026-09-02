@@ -138,6 +138,31 @@ export function MethodologyTab() {
             </p>
           </SubSection>
 
+          <SubSection title="Closed-Form Equivalent — the three additive terms">
+            <p className="text-sm text-gray-400 mb-2 leading-relaxed">
+              Steps 1–5 are geometric series, so the FCFE portion of the value has an exact
+              closed form: three additive present-value terms, per unit of forward FCFE₁
+              (= FCFE₀ × (1 + g)). With n₁ growth years at g, n₂ = 10 − n₁ steady years at m,
+              terminal t and discount r:
+            </p>
+            <Formula>
+              {'Phase 1  = [ 1 − ((1+g)/(1+r))^n₁ ] / (r − g)'}
+              <br />
+              {'Phase 2  = (1+g)^(n₁−1)/(1+r)^n₁ · (1+m)/(r−m) · [ 1 − ((1+m)/(1+r))^n₂ ]'}
+              <br />
+              {'Terminal = (1+g)^(n₁−1) (1+m)^n₂ (1+t) / [ (r − t)(1+r)^(n₁+n₂) ]'}
+            </Formula>
+            <p className="text-sm text-gray-400 mt-2 leading-relaxed">
+              These sum to the same NPV as the year-by-year discounting above (verified in the
+              test-suite). The model runs the discrete version at runtime because it also carries
+              the per-year CapEx / Net-Borrowing overrides and excess cash, which the closed form
+              can't express. The DCF Analysis card reports each term as a share of intrinsic value —
+              a high <strong className="text-gray-300">Terminal</strong> share means most of the
+              value rests on year-11-and-beyond assumptions. n₁ is the growth-phase length, which
+              adapts to the growth rate (6 years below 10%, 5 at 10–20%, 4 above 20%).
+            </p>
+          </SubSection>
+
           <SubSection title="Step 6 — Convert to Intrinsic Value Per Share">
             <Formula>
               {'Intrinsic Value = NPV / Shares Outstanding'}

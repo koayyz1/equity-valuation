@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   calculateDCF,
+  closedFormDCF,
   calculateFCFY,
   reverseDCFGrowth,
   scenarioAssumptions,
@@ -99,6 +100,48 @@ describe('calculateDCF', () => {
     expect(r.dcfPrice).toBeNull();
     expect(r.npv).toBeGreaterThan(0);
   });
+
+  it('splits NPV into three additive PV terms that sum to NPV', () => {
+    const a = makeAssumptions({ growthRate: 0.15, steadyRate: 0.08, terminalGrowth: 0.03, discountRate: 0.09 });
+    const r = calculateDCF(100, 1000, 1000, 100, a);
+    expect(r.phase1PV + r.phase2PV + r.terminalPV + r.excessCash).toBeCloseTo(r.npv, 6);
+    expect(r.terminalPV).toBeCloseTo(r.tvRatio! * r.npv, 6);
+    expect(r.phase1PV).toBeGreaterThan(0);
+    expect(r.phase2PV).toBeGreaterThan(0);
+  });
+});
+
+describe('closedFormDCF (regression oracle for the 3-stage engine)', () => {
+  // The analytic closed form must equal the discrete engine per-term, for every
+  // phase length the adaptive rule can pick (n1 = 4, 5, 6). n1 = 5 is the exact
+  // form the model documents. Cash flows use the forward-FCFE₁ base, so the
+  // closed form (per unit of FCFE₁) scales by fcfe0·(1+g).
+  const cases = [
+    { g: 0.30, m: 0.165, t: 0.03, R: 0.10, n1: 4 },
+    { g: 0.15, m: 0.09, t: 0.03, R: 0.11, n1: 5 },
+    { g: 0.06, m: 0.045, t: 0.02, R: 0.08, n1: 6 },
+  ];
+  for (const c of cases) {
+    it(`matches the discrete engine per-term for n1=${c.n1}`, () => {
+      const fcfe0 = 100;
+      const a = makeAssumptions({
+        growthYears: c.n1,
+        growthRate: c.g,
+        steadyRate: c.m,
+        terminalGrowth: c.t,
+        discountRate: c.R,
+        excessCashRatio: 0,
+      });
+      // No excess cash, no overrides → pure geometric path.
+      const r = calculateDCF(fcfe0, 0, 0, fcfe0, a);
+      const cf = closedFormDCF(c.g, c.m, c.t, c.R, c.n1, 10 - c.n1);
+      const scale = fcfe0 * (1 + c.g); // forward FCFE₁
+      expect(r.phase1PV).toBeCloseTo(cf.phase1 * scale, 4);
+      expect(r.phase2PV).toBeCloseTo(cf.phase2 * scale, 4);
+      expect(r.terminalPV).toBeCloseTo(cf.terminal * scale, 4);
+      expect(r.npv).toBeCloseTo(cf.total * scale, 4);
+    });
+  }
 });
 
 describe('calculateFCFY', () => {

@@ -213,6 +213,9 @@ export function calculateDCF(
     dcfPrice: null,
     dcfPriceMOS: null,
     tvRatio: null,
+    phase1PV: 0,
+    phase2PV: 0,
+    terminalPV: 0,
   };
 
   if (fcfe0 == null) return empty;
@@ -247,13 +250,20 @@ export function calculateDCF(
       ? 0
       : (fcfeY10 * (1 + terminalGrowth)) / (discountRate - terminalGrowth);
 
-  let npvFCFE = 0;
+  // Split the discounted FCFE into the growth phase (yrs 1..growthYears) and the
+  // steady phase (yrs growthYears+1..10) — the first two additive terms of the
+  // closed-form DCF. Uses the actual override-adjusted cash flows, so the three
+  // terms plus excess cash always sum to NPV.
+  let phase1PV = 0;
+  let phase2PV = 0;
   for (let y = 1; y <= 10; y++) {
-    npvFCFE += yearlyFCFE[y - 1] / Math.pow(1 + discountRate, y);
+    const disc = yearlyFCFE[y - 1] / Math.pow(1 + discountRate, y);
+    if (y <= growthYears) phase1PV += disc;
+    else phase2PV += disc;
   }
-  const npvTV = terminalValue / Math.pow(1 + discountRate, 10);
-  const npv = npvFCFE + npvTV + excessCash;
-  const tvRatio = npv > 0 ? npvTV / npv : null;
+  const terminalPV = terminalValue / Math.pow(1 + discountRate, 10);
+  const npv = phase1PV + phase2PV + terminalPV + excessCash;
+  const tvRatio = npv > 0 ? terminalPV / npv : null;
 
   let dcfPrice: number | null = null;
   let dcfPriceMOS: number | null = null;
@@ -262,7 +272,50 @@ export function calculateDCF(
     dcfPriceMOS = dcfPrice * (1 - mos);
   }
 
-  return { yearlyFCFE, terminalValue, npv, excessCash, dcfPrice, dcfPriceMOS, tvRatio };
+  return {
+    yearlyFCFE,
+    terminalValue,
+    npv,
+    excessCash,
+    dcfPrice,
+    dcfPriceMOS,
+    tvRatio,
+    phase1PV,
+    phase2PV,
+    terminalPV,
+  };
+}
+
+/**
+ * Closed-form present value of the 3-stage DCF, expressed per unit of forward
+ * FCFE (year-1 cash flow = 1). Returns the three additive terms of
+ *
+ *   D = Phase1 PV + Phase2 PV + Terminal PV
+ *
+ * with n1 growth years at rate g, n2 steady years at m, and Gordon terminal at
+ * t, discounted at R. Equivalent to summing calculateDCF's geometric cash flows
+ * analytically (verified in the test-suite). Not used at runtime — the discrete
+ * engine is authoritative because it also carries per-year overrides and excess
+ * cash — but kept as documentation and a regression oracle. Undefined at the
+ * singular points g=R, m=R, or t=R.
+ */
+export function closedFormDCF(
+  g: number,
+  m: number,
+  t: number,
+  R: number,
+  n1 = 5,
+  n2 = 5
+): { phase1: number; phase2: number; terminal: number; total: number } {
+  const phase1 = (1 - Math.pow((1 + g) / (1 + R), n1)) / (R - g);
+  const phase2 =
+    (Math.pow(1 + g, n1 - 1) / Math.pow(1 + R, n1)) *
+    ((1 + m) / (R - m)) *
+    (1 - Math.pow((1 + m) / (1 + R), n2));
+  const terminal =
+    (Math.pow(1 + g, n1 - 1) * Math.pow(1 + m, n2) * (1 + t)) /
+    ((R - t) * Math.pow(1 + R, n1 + n2));
+  return { phase1, phase2, terminal, total: phase1 + phase2 + terminal };
 }
 
 /**

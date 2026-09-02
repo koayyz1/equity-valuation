@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { DCFAssumptions, FinancialData, Overrides, PriceData } from '../types';
+import { DCFAssumptions, DCFResult, FinancialData, Overrides, PriceData } from '../types';
 import { calculateDCF, getMOS, reverseDCFGrowth, scenarioAssumptions } from '../utils/calculations';
 import { resolveValuationInputs } from '../utils/valuationInputs';
 import { formatCurrency, formatPercent } from '../utils/formatting';
@@ -85,6 +85,11 @@ export function DCFDeepDive({
   return (
     <div className="bg-gray-900 border border-gray-800 border-l-2 border-l-blue-500/40 rounded-xl p-4 space-y-3">
       <h3 className="text-gray-100 font-semibold text-sm">DCF Analysis</h3>
+
+      {/* Present-value breakdown — the three additive terms of the closed-form DCF */}
+      {hasResult && (
+        <PVBreakdown result={result} growthYears={assumptions.growthYears} currency={currency} />
+      )}
 
       {/* Scenarios + Reverse DCF, side by side on wide screens */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -263,6 +268,106 @@ export function DCFDeepDive({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Present-value breakdown: intrinsic value as the three additive terms of the
+ * closed-form DCF — Phase 1 (growth), Phase 2 (steady), Terminal — plus excess
+ * cash when present. Shown as a stacked bar and a comparable per-term legend so
+ * you can see at a glance how much of the value rests on the terminal value.
+ */
+function PVBreakdown({
+  result,
+  growthYears,
+  currency,
+}: {
+  result: DCFResult;
+  growthYears: number;
+  currency: string;
+}) {
+  const npv = result.npv;
+  if (!(npv > 0)) return null;
+  const pieces = [
+    {
+      key: 'p1',
+      label: `Growth · yrs 1–${growthYears}`,
+      value: result.phase1PV,
+      bar: 'bg-emerald-500',
+      text: 'text-emerald-300',
+    },
+    {
+      key: 'p2',
+      label: `Steady · yrs ${growthYears + 1}–10`,
+      value: result.phase2PV,
+      bar: 'bg-sky-500',
+      text: 'text-sky-300',
+    },
+    {
+      key: 'tv',
+      label: 'Terminal',
+      value: result.terminalPV,
+      bar: 'bg-amber-500',
+      text: 'text-amber-300',
+    },
+    ...(result.excessCash > 0
+      ? [
+          {
+            key: 'cash',
+            label: 'Excess cash',
+            value: result.excessCash,
+            bar: 'bg-gray-500',
+            text: 'text-gray-300',
+          },
+        ]
+      : []),
+  ];
+
+  return (
+    <div>
+      <div className="text-[10px] uppercase tracking-wider text-gray-500 mb-1.5">
+        Present-value breakdown — three additive terms
+      </div>
+      {/* Stacked proportion bar */}
+      <div className="flex h-3 rounded overflow-hidden bg-gray-800">
+        {pieces.map((p) => {
+          const w = Math.max(0, (p.value / npv) * 100);
+          return (
+            <div
+              key={p.key}
+              className={p.bar}
+              style={{ width: `${w}%` }}
+              title={`${p.label}: ${formatCurrency(p.value, currency)} (${formatPercent(
+                p.value / npv,
+                0
+              )})`}
+            />
+          );
+        })}
+      </div>
+      {/* Comparable per-term legend */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-2 mt-2.5">
+        {pieces.map((p) => (
+          <div key={p.key}>
+            <div className="flex items-center gap-1.5">
+              <span className={`inline-block w-2 h-2 rounded-sm ${p.bar}`} />
+              <span className="text-[10px] text-gray-400 truncate">{p.label}</span>
+            </div>
+            <div className="font-mono text-xs text-gray-100 mt-0.5">
+              {formatCurrency(p.value, currency)}
+            </div>
+            <div className={`text-[10px] font-mono ${p.text}`}>
+              {formatPercent(p.value / npv, 0)} of value
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-gray-600 mt-2 leading-relaxed">
+        Intrinsic value = Phase 1 + Phase 2 + Terminal
+        {result.excessCash > 0 ? ' + excess cash' : ''}. A high terminal share means most of the
+        value rests on year-11-and-beyond assumptions.
+      </p>
     </div>
   );
 }
