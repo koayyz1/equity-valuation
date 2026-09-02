@@ -35,6 +35,51 @@ export const TAG_CHAINS = {
     { taxonomy: 'us-gaap', tag: 'CapitalExpenditureDiscontinuedOperations' },
     { taxonomy: 'ifrs-full', tag: 'PurchaseOfPropertyPlantAndEquipment' },
   ],
+  // ── FCFE driver decomposition ──────────────────────────────────────────────
+  // Working-capital components. Sign convention: these tags report the INCREASE
+  // in the balance, so a positive AR/Inventory value is a cash OUTFLOW (negated
+  // when bridging to CFO); a positive AP value is a cash INFLOW.
+  changeReceivables: [
+    { taxonomy: 'us-gaap', tag: 'IncreaseDecreaseInAccountsReceivable' },
+    { taxonomy: 'us-gaap', tag: 'IncreaseDecreaseInAccountsAndOtherReceivables' },
+    { taxonomy: 'ifrs-full', tag: 'AdjustmentsForDecreaseIncreaseInTradeAndOtherReceivables' },
+  ],
+  changeInventory: [
+    { taxonomy: 'us-gaap', tag: 'IncreaseDecreaseInInventories' },
+    { taxonomy: 'ifrs-full', tag: 'AdjustmentsForDecreaseIncreaseInInventories' },
+  ],
+  changePayables: [
+    { taxonomy: 'us-gaap', tag: 'IncreaseDecreaseInAccountsPayable' },
+    { taxonomy: 'us-gaap', tag: 'IncreaseDecreaseInAccountsPayableAndAccruedLiabilities' },
+    { taxonomy: 'ifrs-full', tag: 'AdjustmentsForIncreaseDecreaseInTradeAndOtherPayables' },
+  ],
+  // Non-cash add-backs — often larger than working capital for software/tech.
+  stockComp: [
+    { taxonomy: 'us-gaap', tag: 'ShareBasedCompensation' },
+    { taxonomy: 'us-gaap', tag: 'AllocatedShareBasedCompensationExpense' },
+    { taxonomy: 'ifrs-full', tag: 'AdjustmentsForSharebasedPayments' },
+  ],
+  deferredTax: [
+    { taxonomy: 'us-gaap', tag: 'DeferredIncomeTaxExpenseBenefit' },
+    { taxonomy: 'us-gaap', tag: 'DeferredIncomeTaxesAndTaxCredits' },
+  ],
+  // Amortisation of acquired intangibles — stripped out of D&A to get a cleaner
+  // maintenance-capex proxy (intangible amortisation needs no cash replacement).
+  intangibleAmortization: [
+    { taxonomy: 'us-gaap', tag: 'AmortizationOfIntangibleAssets' },
+    { taxonomy: 'us-gaap', tag: 'AmortizationOfAcquiredIntangibleAssets' },
+  ],
+  // Proceeds from disposals — only some filers break this out; rendered conditionally.
+  assetDisposals: [
+    { taxonomy: 'us-gaap', tag: 'ProceedsFromSaleOfPropertyPlantAndEquipment' },
+    { taxonomy: 'us-gaap', tag: 'ProceedsFromSaleOfProductiveAssets' },
+    { taxonomy: 'ifrs-full', tag: 'ProceedsFromSalesOfPropertyPlantAndEquipment' },
+  ],
+  // Net PP&E (instant) — powers the Greenwald revenue-intensity capex estimate.
+  ppe: [
+    { taxonomy: 'us-gaap', tag: 'PropertyPlantAndEquipmentNet' },
+    { taxonomy: 'ifrs-full', tag: 'PropertyPlantAndEquipment' },
+  ],
   cash: [
     { taxonomy: 'us-gaap', tag: 'CashCashEquivalentsAndShortTermInvestments' },
     { taxonomy: 'us-gaap', tag: 'CashAndCashEquivalentsAtCarryingValue' },

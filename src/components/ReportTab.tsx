@@ -67,6 +67,14 @@ interface QuarterRow {
   quarterlyDepreciationAmortization: number | null;
   quarterlyDebtIssued: number | null;
   quarterlyDebtRepaid: number | null;
+  quarterlyChangeReceivables: number | null;
+  quarterlyChangeInventory: number | null;
+  quarterlyChangePayables: number | null;
+  quarterlyStockComp: number | null;
+  quarterlyDeferredTax: number | null;
+  quarterlyIntangibleAmortization: number | null;
+  quarterlyAssetDisposals: number | null;
+  quarterlyPPE: number | null;
   quarterlyDividendsPaid: number | null;
   quarterlyTotalAssets: number | null;
   quarterlyTotalDebt: number | null;
@@ -906,12 +914,23 @@ export function ReportTab({
       revenue: sumLast4(ttmQuarters, offset, 'quarterlyTotalRevenue'),
       debtIssued: sumLast4Zero(ttmQuarters, offset, 'quarterlyDebtIssued'),
       debtRepaid: sumLast4Zero(ttmQuarters, offset, 'quarterlyDebtRepaid'),
-      // Instant balance: total debt at this window's most recent quarter, so
-      // ΔtotalDebt across windows is a universal net-borrowing proxy for filers
-      // whose cash-flow debt tags we don't capture.
+      // CFO-bridge components. Zero-fill: a quarter that doesn't disclose the line
+      // contributes nothing, and any shortfall lands in the reconciling "Other".
+      stockComp: sumLast4Zero(ttmQuarters, offset, 'quarterlyStockComp'),
+      deferredTax: sumLast4Zero(ttmQuarters, offset, 'quarterlyDeferredTax'),
+      changeReceivables: sumLast4Zero(ttmQuarters, offset, 'quarterlyChangeReceivables'),
+      changeInventory: sumLast4Zero(ttmQuarters, offset, 'quarterlyChangeInventory'),
+      changePayables: sumLast4Zero(ttmQuarters, offset, 'quarterlyChangePayables'),
+      intangibleAmortization: sumLast4Zero(ttmQuarters, offset, 'quarterlyIntangibleAmortization'),
+      assetDisposals: sumLast4Zero(ttmQuarters, offset, 'quarterlyAssetDisposals'),
+      // Instant balances at this window's most recent quarter. ΔtotalDebt across
+      // windows is a universal net-borrowing proxy for filers whose cash-flow debt
+      // tags we don't capture; PP&E powers the revenue-intensity capex split.
       totalDebt: (ttmQuarters[offset]?.quarterlyTotalDebt as number | null) ?? null,
+      ppe: (ttmQuarters[offset]?.quarterlyPPE as number | null) ?? null,
     });
-    return { ttm: window(0), prior: window(4) };
+    // Third window (offset 8) gives a 3-year average capex/D&A to damp lumpiness.
+    return { ttm: window(0), prior: window(4), prior2: window(8) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ttmQuarters]);
 
@@ -1239,6 +1258,7 @@ export function ReportTab({
               currency={currency}
               ttm={fcfFlows.ttm}
               prior={fcfFlows.prior}
+              prior2={fcfFlows.prior2}
             />
           )}
 

@@ -180,6 +180,20 @@ const METRIC_DEF = {
   // D&A add-back — the largest non-cash bridge from net income to operating cash
   // flow, used to explain *why* CFO moved. YTD like other cash-flow items.
   DepreciationAmortization: { kind: 'flow', chain: TAG_CHAINS.da, ytd: true },
+  // CFO bridge components. Receivables/Inventory are reported as the increase in
+  // the balance (a positive value = cash outflow), so flip the sign to express
+  // them as their contribution to operating cash flow. Payables already align.
+  ChangeReceivables: { kind: 'flow', chain: TAG_CHAINS.changeReceivables, ytd: true, sign: -1 },
+  ChangeInventory: { kind: 'flow', chain: TAG_CHAINS.changeInventory, ytd: true, sign: -1 },
+  ChangePayables: { kind: 'flow', chain: TAG_CHAINS.changePayables, ytd: true },
+  StockComp: { kind: 'flow', chain: TAG_CHAINS.stockComp, ytd: true },
+  DeferredTax: { kind: 'flow', chain: TAG_CHAINS.deferredTax, ytd: true },
+  // Amortisation of acquired intangibles — subtracted from D&A for the
+  // maintenance-capex proxy. Asset disposals offset gross capex where reported.
+  IntangibleAmortization: { kind: 'flow', chain: TAG_CHAINS.intangibleAmortization, ytd: true },
+  AssetDisposals: { kind: 'flow', chain: TAG_CHAINS.assetDisposals, ytd: true },
+  // Net PP&E (instant) for the revenue-intensity capex split.
+  PPE: { kind: 'instant', chain: TAG_CHAINS.ppe },
   // Financing-section debt flows for the Net Borrowing breakdown. Issuance is an
   // inflow (positive); repayment tags are positive magnitudes, so flip to negative.
   DebtIssued: { kind: 'flow', chain: TAG_CHAINS.newDebt, ytd: true },
