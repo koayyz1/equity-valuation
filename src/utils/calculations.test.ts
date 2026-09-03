@@ -6,6 +6,9 @@ import {
   reverseDCFGrowth,
   scenarioAssumptions,
   computeDefaultAssumptions,
+  GROWTH_BOUNDS,
+  STEADY_BOUNDS,
+  FALLBACK_GROWTH,
   computeWACC,
   computeROCE,
   computeEarningsYield,
@@ -249,9 +252,38 @@ describe('computeDefaultAssumptions', () => {
     expect(def.terminalGrowth).toBe(0.03);
   });
 
-  it('falls back to 15% growth without a valid window', () => {
+  it('falls back to the default growth rate without a valid window', () => {
     const def = computeDefaultAssumptions([], makeAssumptions());
-    expect(def.growthRate).toBe(0.15);
+    expect(def.growthRate).toBe(FALLBACK_GROWTH);
+  });
+
+  it('clamps a runaway trailing CAGR to the growth ceiling', () => {
+    // FCF 10x over 3 years ≈ +115%/yr raw — not a defensible multi-year assumption.
+    const def = computeDefaultAssumptions(
+      [{ fy: 2021, fcf: 10 }, { fy: 2024, fcf: 100 }],
+      makeAssumptions()
+    );
+    expect(def.growthRate).toBe(GROWTH_BOUNDS.max);
+    expect(def.steadyRate).toBeLessThanOrEqual(STEADY_BOUNDS.max);
+  });
+
+  it('clamps a collapsing trailing CAGR to the growth floor', () => {
+    const def = computeDefaultAssumptions(
+      [{ fy: 2021, fcf: 100 }, { fy: 2024, fcf: 10 }],
+      makeAssumptions()
+    );
+    expect(def.growthRate).toBe(GROWTH_BOUNDS.min);
+    expect(def.steadyRate).toBeGreaterThanOrEqual(STEADY_BOUNDS.min);
+  });
+
+  it('leaves a reasonable CAGR untouched', () => {
+    // 1.1^3 over 3 years = exactly 10%/yr, inside the bounds.
+    const def = computeDefaultAssumptions(
+      [{ fy: 2021, fcf: 100 }, { fy: 2024, fcf: 133.1 }],
+      makeAssumptions()
+    );
+    expect(def.growthRate).toBeCloseTo(0.1, 6);
+    expect(def.steadyRate).toBeCloseTo((0.1 + 0.03) / 2, 6);
   });
 });
 

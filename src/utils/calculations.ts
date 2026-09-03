@@ -1,13 +1,25 @@
 import { DCFAssumptions, DCFResult, FCFYResult, UncertaintyLevel } from '../types';
 
+/** Bounds on the data-derived growth-phase rate. A trailing FCF CAGR is a noisy
+ *  estimator — free cash flow is lumpy, so a single heavy-capex year at either
+ *  endpoint can swing it wildly. Left unbounded it produced 89%/yr for NVDA and
+ *  −18%/yr for KO, neither of which is a defensible multi-year assumption. */
+export const GROWTH_BOUNDS = { min: -0.05, max: 0.25 };
+/** Steady phase is a fade toward terminal, so it is bounded more tightly still. */
+export const STEADY_BOUNDS = { min: -0.02, max: 0.12 };
+/** Used when no positive-to-positive FCF window exists (was 15%, near the top of
+ *  the observed range; 8% sits close to the large-cap median). */
+export const FALLBACK_GROWTH = 0.08;
+
 /**
  * Compute data-driven default DCF assumptions from a company's FCF history.
  *
  * Rules:
- *  - growthRate  = 3-year FCF CAGR (falls back to whatever years are available)
- *                  Falls back to 15% if no valid positive-to-positive window found.
+ *  - growthRate  = 3-year FCF CAGR (falls back to whatever years are available),
+ *                  clamped to GROWTH_BOUNDS. Falls back to FALLBACK_GROWTH if no
+ *                  valid positive-to-positive window is found.
  *  - growthYears = 6 if growthRate < 10%, 5 if 10–20%, 4 if > 20%
- *  - steadyRate  = simple average of growthRate and 3%
+ *  - steadyRate  = midpoint of growthRate and terminal, clamped to STEADY_BOUNDS
  *  - terminalGrowth = 3% (fixed)
  *  - All other fields kept from the supplied base assumptions.
  */
@@ -15,7 +27,7 @@ export function computeDefaultAssumptions(
   fcfHistory: { fy: number; fcf: number }[],
   base: DCFAssumptions,
 ): DCFAssumptions {
-  let growthRate = 0.15; // fallback
+  let growthRate = FALLBACK_GROWTH;
 
   if (fcfHistory && fcfHistory.length >= 2) {
     const sorted = [...fcfHistory].sort((a, b) => b.fy - a.fy);
@@ -29,8 +41,7 @@ export function computeDefaultAssumptions(
     const years = latest.fy - target.fy;
     if (years > 0 && latest.fcf > 0 && target.fcf > 0) {
       const raw = Math.pow(latest.fcf / target.fcf, 1 / years) - 1;
-      // Clamp to a sensible range (−50% → +200%)
-      growthRate = Math.max(-0.5, Math.min(2.0, raw));
+      growthRate = clampRange(raw, GROWTH_BOUNDS.min, GROWTH_BOUNDS.max);
     }
   }
 
@@ -38,14 +49,20 @@ export function computeDefaultAssumptions(
     growthRate < 0.10 ? 6 :
     growthRate <= 0.20 ? 5 : 4;
 
-  const steadyRate = (growthRate + 0.03) / 2;
+  const terminalGrowth = 0.03;
+  // Steady phase fades from the growth rate toward terminal.
+  const steadyRate = clampRange(
+    (growthRate + terminalGrowth) / 2,
+    STEADY_BOUNDS.min,
+    STEADY_BOUNDS.max
+  );
 
   return {
     ...base,
     growthRate,
     growthYears,
     steadyRate,
-    terminalGrowth: 0.03,
+    terminalGrowth,
   };
 }
 
