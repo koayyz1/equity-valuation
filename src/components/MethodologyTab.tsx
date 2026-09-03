@@ -225,26 +225,43 @@ export function MethodologyTab() {
             </p>
           </SubSection>
 
-          <SubSection title="Step 2 — Compute Required Minimum FCF Yield">
+          <SubSection title="Step 2 — Derive the Required Yield from the DCF">
             <p className="text-sm text-gray-400 mb-2 leading-relaxed">
-              A piecewise linear function maps the blended growth rate <em>g</em> and the discount
-              rate <em>R</em> to the minimum FCF yield an investor should demand today:
+              The required yield is not fitted — it is the DCF's own implied forward yield, obtained
+              by inverting the three-term closed form (per unit of forward FCFE₁):
             </p>
             <Formula>
-              {'g ≤ 8%:          minYield = (R + 0.03) − 0.40 × g'}
+              {'F = FCFE₁ / (S₁ + S₂ + S_T)'}
               <br />
-              {'8% < g ≤ 15%:   minYield = (R + 0.01) − 0.29 × g'}
-              <br />
-              {'g > 15%:         minYield = (R + 0.03) − 0.33 × g'}
+              {'   S₁ = growth-phase PV,  S₂ = steady-phase PV,  S_T = terminal PV'}
             </Formula>
             <p className="text-sm text-gray-400 mt-2 leading-relaxed">
-              The three bands reflect the diminishing yield premium needed as growth increases:
-              high-growth companies justify lower current yields because a larger share of returns
-              comes from future capital appreciation rather than today's cash generation. Note that
-              the intercepts sit <em>above</em> the discount rate (R + 1% to R + 3%), which makes
-              this a deliberately conservative hurdle rather than a DCF-equivalent — in practice it
-              lands 1.5–2.6× below the DCF price. See{' '}
-              <strong className="text-gray-300">DCF vs Forward FCF Yield</strong> below.
+              At this point F is <em>exactly</em> DCF-equivalent: capitalising FCFE₁ at F reproduces
+              the DCF price (excluding excess cash). The two models therefore cannot silently
+              disagree.
+            </p>
+          </SubSection>
+
+          <SubSection title="Step 2b — Apply the Terminal Haircut (conservatism lever)">
+            <Formula>
+              {'requiredYield = FCFE₁ / ( S₁ + S₂ + S_T × (1 − haircut) )'}
+            </Formula>
+            <p className="text-sm text-gray-400 mt-2 leading-relaxed">
+              Because F alone would just restate the DCF, the model discards a stated fraction of the
+              terminal term — the least reliable piece, typically 40–55% of total value. This is what
+              makes FCFY a genuinely stricter hurdle rather than a duplicate, and the conservatism is
+              an explicit, tunable assumption instead of hardcoded constants. A haircut of{' '}
+              <strong className="text-gray-300">0</strong> gives the DCF answer;{' '}
+              <strong className="text-gray-300">1</strong> credits no terminal value at all, answering
+              "what would I pay for the next ten years alone?" The default is 50%.
+            </p>
+            <p className="text-sm text-gray-400 mt-2 leading-relaxed">
+              This replaces an earlier piecewise-linear fit (three growth bands with intercepts of
+              R + 1% to R + 3%). Measured against the DCF that fit ran 1.5–2.6× low and was
+              discontinuous at the band boundaries — at one boundary the implied price
+              <em> fell</em> as growth rose. See{' '}
+              <strong className="text-gray-300">DCF vs Forward FCF Yield</strong> below for the
+              comparison that motivated the change.
             </p>
           </SubSection>
 
@@ -257,16 +274,20 @@ export function MethodologyTab() {
             </p>
           </SubSection>
 
-          <SubSection title="Step 4 — Compute FCFY Intrinsic Value Per Share">
+          <SubSection title="Step 4 — Compare Offered Yield vs Required Yield">
             <Formula>
-              {'FCFY Price = FCFE_Y1 / minYield / Shares Outstanding'}
+              {'actualYield = FCFE_Y1 / Market Cap'}
               <br />
-              {'MOS Price  = FCFY Price × (1 − MOS%)'}
+              {'yield gap   = actualYield − requiredYield      (clears hurdle when ≥ 0)'}
+              <br />
+              {'FCFY Price  = FCFE_Y1 / requiredYield / Shares'}
             </Formula>
             <p className="text-sm text-gray-400 mt-2 leading-relaxed">
-              Dividing Y1 FCFE by the required yield gives the maximum total equity value at which
-              an investor achieves the target IRR. Dividing by shares converts this to a per-share
-              price. The Margin of Safety haircut is then applied identically to the DCF model.
+              The panel leads with the yield comparison rather than a rival price: what the stock
+              actually offers today versus what these assumptions demand. This is the question the
+              model's name promises, and it avoids presenting a second "fair value" that would
+              otherwise just be the DCF restated. The implied price and the Margin of Safety haircut
+              are still shown for reference, applied identically to the DCF model.
             </p>
           </SubSection>
         </Section>

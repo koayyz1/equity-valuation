@@ -318,40 +318,91 @@ export function closedFormDCF(
   return { phase1, phase2, terminal, total: phase1 + phase2 + terminal };
 }
 
+/** Default share of terminal value discarded when setting the FCFY hurdle. */
+export const DEFAULT_TERMINAL_HAIRCUT = 0.5;
+
 /**
- * Forward FCF Yield model. Piecewise linear approximation mapping
- * {discount rate R, blended growth g} -> min required FCF yield today.
+ * Forward FCF Yield model — expressed as a yield hurdle rather than a rival price.
  *
- *   g <= 8%:       y = (R + 0.03) - 0.40 g
- *   8% < g <= 15%: y = (R + 0.01) - 0.29 g
- *   g > 15%:       y = (R + 0.03) - 0.33 g
+ * The required yield is derived exactly from the DCF, not fitted:
+ *
+ *   F = FCFE₁ / (S₁ + S₂ + S_T)
+ *
+ * where S₁/S₂/S_T are the growth-phase, steady-phase and terminal present values.
+ * At terminalHaircut = 0 this reproduces the DCF price exactly (ex excess cash),
+ * so the two models can no longer silently disagree. The haircut then discards a
+ * stated fraction of S_T, making FCFY a deliberately stricter hurdle — "what would
+ * I pay if I only part-credit the perpetuity?" — with the conservatism as a visible,
+ * tunable assumption instead of hardcoded constants.
+ *
+ * This replaces an earlier piecewise-linear fit whose intercepts sat above the
+ * discount rate; measured against the DCF it ran 1.5–2.6x low with a discontinuity
+ * at the band boundaries. See the Methodology tab for the comparison.
  */
 export function calculateFCFY(
   fcfe0: number | null,
   shares: number | null,
-  assumptions: DCFAssumptions
+  assumptions: DCFAssumptions,
+  marketCap?: number | null
 ): FCFYResult {
-  const { growthYears, growthRate, steadyRate, discountRate, uncertainty } = assumptions;
+  const { growthYears, growthRate, steadyRate, uncertainty } = assumptions;
   const mos = getMOS(uncertainty);
-  const R = discountRate;
+  const haircut = Math.max(
+    0,
+    Math.min(1, assumptions.terminalHaircut ?? DEFAULT_TERMINAL_HAIRCUT)
+  );
 
-  const blendedGrowth =
-    (growthYears * growthRate + (10 - growthYears) * steadyRate) / 10;
+  const blendedGrowth = (growthYears * growthRate + (10 - growthYears) * steadyRate) / 10;
 
-  let minYield: number;
-  if (blendedGrowth <= 0.08) minYield = R + 0.03 - 0.4 * blendedGrowth;
-  else if (blendedGrowth <= 0.15) minYield = R + 0.01 - 0.29 * blendedGrowth;
-  else minYield = R + 0.03 - 0.33 * blendedGrowth;
+  // Required yield is the DCF's own implied forward yield — F = FCFE₁/(S₁+S₂+S_T)
+  // — evaluated on a unit basis (FCFE₀ = 1, no cash, no per-year overrides) so it
+  // is scale-free. Running it through the discrete engine rather than the closed
+  // form keeps every edge case consistent with the DCF (terminal zeroed when
+  // t ≥ R, g = R, the adaptive growth-phase length).
+  const unit = calculateDCF(1, 0, 0, 1, {
+    ...assumptions,
+    capexOverrides: undefined,
+    netBorrowingOverrides: undefined,
+  });
+  const fcfe1Unit = 1 + growthRate;
+  const s1 = unit.phase1PV;
+  const s2 = unit.phase2PV;
+  const sT = unit.terminalPV;
+  const baseSum = s1 + s2 + sT;
+  // Conservatism: discard part of the terminal term, the least reliable piece.
+  const adjSum = s1 + s2 + sT * (1 - haircut);
+
+  const baseYield = baseSum > 0 ? fcfe1Unit / baseSum : NaN;
+  const requiredYield = adjSum > 0 ? fcfe1Unit / adjSum : NaN;
 
   const fcfeY1 = fcfe0 != null ? fcfe0 * (1 + growthRate) : null;
   let fcfyPrice: number | null = null;
   let fcfyPriceMOS: number | null = null;
-  if (fcfeY1 != null && shares != null && shares > 0 && minYield > 0) {
-    fcfyPrice = fcfeY1 / minYield / shares;
+  if (
+    fcfeY1 != null &&
+    shares != null &&
+    shares > 0 &&
+    requiredYield > 0 &&
+    Number.isFinite(requiredYield)
+  ) {
+    fcfyPrice = fcfeY1 / requiredYield / shares;
     fcfyPriceMOS = fcfyPrice * (1 - mos);
   }
 
-  return { minYield, blendedGrowth, fcfyPrice, fcfyPriceMOS };
+  const actualYield =
+    fcfeY1 != null && marketCap != null && marketCap > 0 ? fcfeY1 / marketCap : null;
+
+  return {
+    requiredYield,
+    baseYield,
+    terminalHaircut: haircut,
+    terms: { phase1: s1, phase2: s2, terminal: sT },
+    terminalShare: baseSum > 0 ? sT / baseSum : null,
+    actualYield,
+    blendedGrowth,
+    fcfyPrice,
+    fcfyPriceMOS,
+  };
 }
 
 /**

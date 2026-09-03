@@ -72,6 +72,11 @@ export interface DCFAssumptions {
   discountRate: number;
   uncertainty: UncertaintyLevel;
   excessCashRatio: number;
+  /** Forward FCF Yield conservatism lever: fraction of the DCF's terminal value
+   *  to discard when setting the required yield. 0 = identical to the DCF,
+   *  1 = no terminal credit at all. Optional for back-compat with saved
+   *  assumptions; defaults to DEFAULT_TERMINAL_HAIRCUT. */
+  terminalHaircut?: number;
   /** Optional year-by-year overrides for CapEx (negative values) and Net Borrowing.
    *  Indexed 0..4 for years 1..5. null means use default projection. */
   capexOverrides?: (number | null)[];
@@ -94,7 +99,18 @@ export interface DCFResult {
 }
 
 export interface FCFYResult {
-  minYield: number;
+  /** Yield demanded after the terminal haircut — the actionable hurdle. */
+  requiredYield: number;
+  /** Yield implied by the DCF with no haircut, i.e. F = FCFE₁/(S₁+S₂+S_T). */
+  baseYield: number;
+  /** Conservatism lever actually applied (0 = pure DCF, 1 = no terminal credit). */
+  terminalHaircut: number;
+  /** The three additive PV terms, per unit of FCFE₀ (pre-haircut). */
+  terms: { phase1: number; phase2: number; terminal: number };
+  /** Terminal share of pre-haircut value — what the haircut is acting on. */
+  terminalShare: number | null;
+  /** FCFE₁ / market cap — what the stock actually offers today. */
+  actualYield: number | null;
   blendedGrowth: number;
   fcfyPrice: number | null;
   fcfyPriceMOS: number | null;

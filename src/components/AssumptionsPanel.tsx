@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { DCFAssumptions, FinancialData, Overrides, PriceData, UncertaintyLevel } from '../types';
-import { getMOS, UNCERTAINTY_LABELS, computeWACC } from '../utils/calculations';
+import { getMOS, UNCERTAINTY_LABELS, computeWACC, DEFAULT_TERMINAL_HAIRCUT } from '../utils/calculations';
 import { resolveValuationInputs } from '../utils/valuationInputs';
 import { formatCurrency, formatPercent, parseInputValue } from '../utils/formatting';
 import { getPreset, savePreset, deletePreset } from '../utils/presets';
@@ -189,6 +189,16 @@ export function AssumptionsPanel({
           step={0.001}
           onChange={setField('terminalGrowth')}
           defaultValue={defaultAssumptions.terminalGrowth}
+        />
+        {/* FCFY-only conservatism lever — does not affect the DCF. */}
+        <SliderInput
+          label="FCFY Terminal Haircut"
+          value={assumptions.terminalHaircut ?? DEFAULT_TERMINAL_HAIRCUT}
+          min={0}
+          max={1}
+          step={0.05}
+          onChange={setField('terminalHaircut')}
+          defaultValue={defaultAssumptions.terminalHaircut ?? DEFAULT_TERMINAL_HAIRCUT}
         />
 
         {/* Discount rate + WACC link */}

@@ -145,30 +145,53 @@ describe('closedFormDCF (regression oracle for the 3-stage engine)', () => {
 });
 
 describe('calculateFCFY', () => {
-  it('uses the low-growth band (g ≤ 8%)', () => {
-    const a = makeAssumptions({ growthYears: 5, growthRate: 0.05, steadyRate: 0.05, discountRate: 0.1 });
-    const r = calculateFCFY(100, 100, a);
-    expect(r.blendedGrowth).toBeCloseTo(0.05, 9);
-    // minYield = R + 0.03 − 0.4·g = 0.10 + 0.03 − 0.02 = 0.11
-    expect(r.minYield).toBeCloseTo(0.11, 9);
-    // price = fcfe0·(1+g) / minYield / shares = 105 / 0.11 / 100
-    expect(r.fcfyPrice!).toBeCloseTo(105 / 0.11 / 100, 6);
+  // With no haircut the hurdle IS the DCF, so the two models must agree exactly
+  // (ex excess cash). This is the property the old piecewise fit violated.
+  it('reproduces the DCF price exactly at zero terminal haircut', () => {
+    for (const g of [0.04, 0.12, 0.25]) {
+      const a = makeAssumptions({
+        growthRate: g,
+        steadyRate: (g + 0.03) / 2,
+        terminalGrowth: 0.03,
+        discountRate: 0.11,
+        growthYears: g < 0.1 ? 6 : g <= 0.2 ? 5 : 4,
+        terminalHaircut: 0,
+        excessCashRatio: 0,
+      });
+      const dcf = calculateDCF(100, 0, 0, 100, a);
+      const fcfy = calculateFCFY(100, 100, a);
+      expect(fcfy.fcfyPrice!).toBeCloseTo(dcf.dcfPrice!, 6);
+      expect(fcfy.requiredYield).toBeCloseTo(fcfy.baseYield, 9);
+    }
   });
 
-  it('uses the mid-growth band (8% < g ≤ 15%)', () => {
-    const a = makeAssumptions({ growthYears: 10, growthRate: 0.1, steadyRate: 0, discountRate: 0.11 });
+  it('splits the required yield into the three PV terms', () => {
+    const a = makeAssumptions({ growthRate: 0.12, steadyRate: 0.075, terminalHaircut: 0 });
     const r = calculateFCFY(100, 100, a);
-    expect(r.blendedGrowth).toBeCloseTo(0.1, 9);
-    // minYield = R + 0.01 − 0.29·g = 0.11 + 0.01 − 0.029 = 0.091
-    expect(r.minYield).toBeCloseTo(0.091, 9);
+    const { phase1, phase2, terminal } = r.terms;
+    // F = FCFE₁ / (S₁+S₂+S_T), per unit of FCFE₀
+    expect(r.baseYield).toBeCloseTo(1.12 / (phase1 + phase2 + terminal), 9);
+    expect(r.terminalShare!).toBeCloseTo(terminal / (phase1 + phase2 + terminal), 9);
   });
 
-  it('uses the high-growth band (g > 15%)', () => {
-    const a = makeAssumptions({ growthYears: 10, growthRate: 0.2, steadyRate: 0, discountRate: 0.11 });
-    const r = calculateFCFY(100, 100, a);
-    expect(r.blendedGrowth).toBeCloseTo(0.2, 9);
-    // minYield = R + 0.03 − 0.33·g = 0.11 + 0.03 − 0.066 = 0.074
-    expect(r.minYield).toBeCloseTo(0.074, 9);
+  it('raises the hurdle monotonically as the terminal haircut increases', () => {
+    const mk = (h: number) => calculateFCFY(100, 100, makeAssumptions({ terminalHaircut: h }));
+    const [a, b, c] = [mk(0), mk(0.5), mk(1)];
+    expect(b.requiredYield).toBeGreaterThan(a.requiredYield);
+    expect(c.requiredYield).toBeGreaterThan(b.requiredYield);
+    // A stricter hurdle means a lower fair price.
+    expect(b.fcfyPrice!).toBeLessThan(a.fcfyPrice!);
+    expect(c.fcfyPrice!).toBeLessThan(b.fcfyPrice!);
+    // Haircut only touches the terminal term; the base yield is unchanged.
+    expect(b.baseYield).toBeCloseTo(a.baseYield, 9);
+  });
+
+  it('compares the actual yield against the hurdle when a market cap is given', () => {
+    const a = makeAssumptions({ terminalHaircut: 0.5 });
+    const r = calculateFCFY(100, 100, a, 2000);
+    expect(r.actualYield!).toBeCloseTo(110 / 2000, 9); // FCFE₁ = 100·(1+0.10)
+    // No market cap -> no actual yield, but the hurdle still computes.
+    expect(calculateFCFY(100, 100, a).actualYield).toBeNull();
   });
 });
 
