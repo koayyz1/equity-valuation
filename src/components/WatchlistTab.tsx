@@ -3,7 +3,7 @@ import {
   WatchlistEntry, WatchlistData, FinancialData, PriceData,
   DCFAssumptions, UncertaintyLevel,
 } from '../types';
-import { calculateDCF, calculateFCFY, getMOS, UNCERTAINTY_LABELS, computeDefaultAssumptions, scenarioAssumptions, computeWACC } from '../utils/calculations';
+import { calculateDCF, calculateFCFY, getMOS, UNCERTAINTY_LABELS, computeDefaultAssumptions, scenarioAssumptions, computeWACC, DEFAULT_GROWTH_DECAY } from '../utils/calculations';
 import { formatCurrency, formatPercent } from '../utils/formatting';
 import { IconClipboard } from './icons';
 
@@ -14,9 +14,7 @@ const API_BASE = '/api';
 // seed it once without clobbering a user's real saved assumptions.
 function isBaseAssumptions(a: DCFAssumptions): boolean {
   return (
-    a.growthYears === 5 &&
     Math.abs(a.growthRate - 0.15) < 1e-9 &&
-    Math.abs(a.steadyRate - 0.09) < 1e-9 &&
     Math.abs(a.terminalGrowth - 0.03) < 1e-9 &&
     Math.abs(a.discountRate - 0.11) < 1e-9
   );
@@ -62,7 +60,7 @@ type SortCol =
   | 'dcfUpside' | 'bearUpside' | 'bullUpside' | 'fcfyUpside'
   | 'fcfeYield' | 'fcfCAGR'
   | 'roic' | 'wacc' | 'spread' | 'maxGrowth' | 'tvRatio'
-  | 'growthRate' | 'growthYears' | 'steadyRate' | 'terminalGrowth' | 'uncertainty';
+  | 'growthRate' | 'growthDecay' | 'terminalGrowth' | 'uncertainty';
 
 type SortDir = 'asc' | 'desc';
 
@@ -158,8 +156,7 @@ function getSortValue(row: RowData, col: SortCol): number | null {
     // assumption-only columns still sortable
     const a = row.entry.assumptions;
     if (col === 'growthRate') return a.growthRate;
-    if (col === 'growthYears') return a.growthYears;
-    if (col === 'steadyRate') return a.steadyRate;
+    if (col === 'growthDecay') return a.growthDecay ?? DEFAULT_GROWTH_DECAY;
     if (col === 'terminalGrowth') return a.terminalGrowth;
     if (col === 'uncertainty') return a.uncertainty;
     return null;
@@ -181,8 +178,7 @@ function getSortValue(row: RowData, col: SortCol): number | null {
     case 'maxGrowth':     return c.maxGrowth;
     case 'tvRatio':       return c.tvRatio;
     case 'growthRate':    return a.growthRate;
-    case 'growthYears':   return a.growthYears;
-    case 'steadyRate':    return a.steadyRate;
+    case 'growthDecay':   return a.growthDecay ?? DEFAULT_GROWTH_DECAY;
     case 'terminalGrowth': return a.terminalGrowth;
     case 'uncertainty':   return a.uncertainty;
   }
@@ -531,16 +527,9 @@ function WatchlistRow({
       </td>
       <td className="px-2 py-2 text-center">
         <input
-          type="number" value={a.growthYears} step="1" min={1} max={9}
-          onChange={(e) => setField('growthYears')(Number(e.target.value))}
+          type="number" value={((a.growthDecay ?? DEFAULT_GROWTH_DECAY) * 100).toFixed(0)} step="5" min={0} max={95}
+          onChange={(e) => setField('growthDecay')(Number(e.target.value) / 100)}
           className="w-10 bg-gray-800 border border-gray-700 rounded text-xs text-center font-mono text-gray-200 px-1 py-0.5 focus:outline-none focus:border-blue-500"
-        />
-      </td>
-      <td className="px-2 py-2 text-center">
-        <input
-          type="number" value={(a.steadyRate * 100).toFixed(1)} step="0.5" min={0} max={50}
-          onChange={(e) => setField('steadyRate')(Number(e.target.value) / 100)}
-          className="w-14 bg-gray-800 border border-gray-700 rounded text-xs text-center font-mono text-gray-200 px-1 py-0.5 focus:outline-none focus:border-blue-500"
         />
       </td>
       <td className="px-2 py-2 text-center">
@@ -827,8 +816,7 @@ export function WatchlistTab({
                 <SortHeader col="maxGrowth" label="Max g" className="text-right" />
                 <SortHeader col="tvRatio" label="TV/NPV" className="text-right" />
                 <SortHeader col="growthRate" label="G1%" />
-                <SortHeader col="growthYears" label="Yrs" />
-                <SortHeader col="steadyRate" label="G2%" />
+                <SortHeader col="growthDecay" label="Fade" />
                 <SortHeader col="terminalGrowth" label="TG%" />
                 <SortHeader col="uncertainty" label="MOS" />
                 <th className={thBase}></th>

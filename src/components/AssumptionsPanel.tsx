@@ -1,6 +1,13 @@
 import { useEffect, useState } from 'react';
 import { DCFAssumptions, FinancialData, Overrides, PriceData, UncertaintyLevel } from '../types';
-import { getMOS, UNCERTAINTY_LABELS, computeWACC, DEFAULT_TERMINAL_HAIRCUT } from '../utils/calculations';
+import {
+  getMOS,
+  UNCERTAINTY_LABELS,
+  computeWACC,
+  DEFAULT_TERMINAL_HAIRCUT,
+  DEFAULT_GROWTH_DECAY,
+  growthPath,
+} from '../utils/calculations';
 import { resolveValuationInputs } from '../utils/valuationInputs';
 import { formatCurrency, formatPercent, parseInputValue } from '../utils/formatting';
 import { getPreset, savePreset, deletePreset } from '../utils/presets';
@@ -68,6 +75,12 @@ export function AssumptionsPanel({
     taxRate: financials.taxRate,
   });
   const waccClamped = wacc != null ? Math.max(0.05, Math.min(0.2, wacc)) : null;
+
+  // Show where the fade lands by year 10, so the persistence slider has a
+  // concrete meaning rather than being an abstract decay constant.
+  const decay = assumptions.growthDecay ?? DEFAULT_GROWTH_DECAY;
+  const fadeEndRate =
+    growthPath(assumptions.growthRate, assumptions.terminalGrowth, decay).slice(-1)[0];
 
   // While locked, force the discount rate to track WACC. The guard prevents a
   // write loop: once discountRate equals waccClamped the effect no-ops.
@@ -154,32 +167,25 @@ export function AssumptionsPanel({
       {/* Sliders laid out across the full width */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-3">
         <SliderInput
-          label="Growth Phase (years)"
-          value={assumptions.growthYears}
-          min={1}
-          max={10}
-          step={1}
-          onChange={setField('growthYears')}
-          format="years"
-          defaultValue={defaultAssumptions.growthYears}
-        />
-        <SliderInput
-          label={`Growth Phase Rate (Y1–Y${assumptions.growthYears})`}
+          label="Year-1 Growth Rate"
           value={assumptions.growthRate}
-          min={0}
-          max={0.5}
+          min={-0.2}
+          max={1.0}
           step={0.005}
           onChange={setField('growthRate')}
           defaultValue={defaultAssumptions.growthRate}
         />
+        {/* Growth persistence. Higher = growth holds up longer before fading to
+            terminal; this is the honest place to be conservative, rather than
+            capping the rate itself. */}
         <SliderInput
-          label={`Steady Phase Rate (Y${assumptions.growthYears + 1}–Y10)`}
-          value={assumptions.steadyRate}
+          label={`Growth Persistence (Y10 ≈ ${formatPercent(fadeEndRate)})`}
+          value={decay}
           min={0}
-          max={0.5}
-          step={0.005}
-          onChange={setField('steadyRate')}
-          defaultValue={defaultAssumptions.steadyRate}
+          max={0.95}
+          step={0.05}
+          onChange={setField('growthDecay')}
+          defaultValue={defaultAssumptions.growthDecay ?? DEFAULT_GROWTH_DECAY}
         />
         <SliderInput
           label="Terminal Growth"

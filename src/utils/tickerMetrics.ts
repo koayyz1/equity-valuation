@@ -1,5 +1,5 @@
 import { DCFAssumptions } from '../types';
-import { calculateDCF, computeDefaultAssumptions } from './calculations';
+import { calculateDCF, computeDefaultAssumptions, DEFAULT_GROWTH_DECAY } from './calculations';
 import { fetchJson as robustFetchJson } from './fetchJson';
 
 /** A single ticker's headline metrics, used by the Peers and Screener tables. */
@@ -23,9 +23,8 @@ export interface TickerMetrics {
 // Base assumptions used to derive each ticker's data-driven default DCF.
 // Mirrors App.tsx's baseAssumptions.
 const BASE: DCFAssumptions = {
-  growthYears: 5,
   growthRate: 0.15,
-  steadyRate: 0.09,
+  growthDecay: DEFAULT_GROWTH_DECAY,
   terminalGrowth: 0.03,
   discountRate: 0.11,
   uncertainty: 2,

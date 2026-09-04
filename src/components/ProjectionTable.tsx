@@ -1,11 +1,13 @@
-import { formatCurrency } from '../utils/formatting';
+import { formatCurrency, formatPercent } from '../utils/formatting';
 
 interface ProjectionTableProps {
   yearlyFCFE: number[];
   terminalValue: number;
   currency: string;
   discountRate: number;
-  growthYears: number;
+  splitYear: number;
+  /** Per-year growth rates actually applied (the fade path). */
+  growthPath?: number[];
 }
 
 export function ProjectionTable({
@@ -13,7 +15,8 @@ export function ProjectionTable({
   terminalValue,
   currency,
   discountRate,
-  growthYears,
+  splitYear,
+  growthPath,
 }: ProjectionTableProps) {
   if (!yearlyFCFE.length) return null;
 
@@ -23,7 +26,7 @@ export function ProjectionTable({
         <thead>
           <tr className="text-gray-500 border-b border-gray-800">
             <th className="text-left py-1 px-2 font-normal">Year</th>
-            <th className="text-left py-1 px-2 font-normal">Phase</th>
+            <th className="text-right py-1 px-2 font-normal">Growth</th>
             <th className="text-right py-1 px-2 font-normal">FCFE</th>
             <th className="text-right py-1 px-2 font-normal">Disc</th>
             <th className="text-right py-1 px-2 font-normal">PV</th>
@@ -34,17 +37,14 @@ export function ProjectionTable({
             const year = i + 1;
             const df = Math.pow(1 + discountRate, year);
             const pv = fcfe / df;
-            const phase = year <= growthYears ? 'G' : 'S';
+            const phase = year <= splitYear ? '1' : '2';
+            const yearGrowth = growthPath?.[year - 1];
             return (
               <tr key={year} className="border-b border-gray-900 hover:bg-gray-800/40">
                 <td className="py-1 px-2 text-gray-400">Y{year}</td>
-                <td className="py-1 px-2">
-                  <span
-                    className={
-                      phase === 'G' ? 'text-emerald-400' : 'text-amber-400'
-                    }
-                  >
-                    {phase}
+                <td className="py-1 px-2 text-right">
+                  <span className={phase === '1' ? 'text-emerald-400' : 'text-amber-400'}>
+                    {yearGrowth != null ? formatPercent(yearGrowth) : '—'}
                   </span>
                 </td>
                 <td className="py-1 px-2 text-right text-gray-200">

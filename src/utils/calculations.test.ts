@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
   calculateDCF,
-  closedFormDCF,
+  growthPath,
   calculateFCFY,
   reverseDCFGrowth,
   scenarioAssumptions,
   computeDefaultAssumptions,
   GROWTH_BOUNDS,
-  STEADY_BOUNDS,
+  DEFAULT_GROWTH_DECAY,
   FALLBACK_GROWTH,
   computeWACC,
   computeROCE,
@@ -21,9 +21,8 @@ import { DCFAssumptions } from '../types';
 // A reusable base assumption set; override per-test as needed.
 function makeAssumptions(overrides: Partial<DCFAssumptions> = {}): DCFAssumptions {
   return {
-    growthYears: 5,
     growthRate: 0.1,
-    steadyRate: 0.05,
+    growthDecay: DEFAULT_GROWTH_DECAY,
     terminalGrowth: 0.02,
     discountRate: 0.1,
     uncertainty: 2,
@@ -59,7 +58,7 @@ describe('getMOS', () => {
 describe('calculateDCF', () => {
   it('reconstructs a flat perpetuity exactly', () => {
     // Flat FCFE of 100, 0% growth, 0% terminal, 10% discount → perpetuity = 100/0.1 = 1000.
-    const a = makeAssumptions({ growthRate: 0, steadyRate: 0, terminalGrowth: 0, discountRate: 0.1 });
+    const a = makeAssumptions({ growthRate: 0, terminalGrowth: 0, discountRate: 0.1 });
     const r = calculateDCF(100, 0, 0, 100, a);
     expect(r.npv).toBeCloseTo(1000, 6);
     expect(r.dcfPrice).toBeCloseTo(10, 6); // 1000 / 100 shares
@@ -105,7 +104,7 @@ describe('calculateDCF', () => {
   });
 
   it('splits NPV into three additive PV terms that sum to NPV', () => {
-    const a = makeAssumptions({ growthRate: 0.15, steadyRate: 0.08, terminalGrowth: 0.03, discountRate: 0.09 });
+    const a = makeAssumptions({ growthRate: 0.15, terminalGrowth: 0.03, discountRate: 0.09 });
     const r = calculateDCF(100, 1000, 1000, 100, a);
     expect(r.phase1PV + r.phase2PV + r.terminalPV + r.excessCash).toBeCloseTo(r.npv, 6);
     expect(r.terminalPV).toBeCloseTo(r.tvRatio! * r.npv, 6);
@@ -114,37 +113,63 @@ describe('calculateDCF', () => {
   });
 });
 
-describe('closedFormDCF (regression oracle for the 3-stage engine)', () => {
-  // The analytic closed form must equal the discrete engine per-term, for every
-  // phase length the adaptive rule can pick (n1 = 4, 5, 6). n1 = 5 is the exact
-  // form the model documents. Cash flows use the forward-FCFE₁ base, so the
-  // closed form (per unit of FCFE₁) scales by fcfe0·(1+g).
-  const cases = [
-    { g: 0.30, m: 0.165, t: 0.03, R: 0.10, n1: 4 },
-    { g: 0.15, m: 0.09, t: 0.03, R: 0.11, n1: 5 },
-    { g: 0.06, m: 0.045, t: 0.02, R: 0.08, n1: 6 },
-  ];
-  for (const c of cases) {
-    it(`matches the discrete engine per-term for n1=${c.n1}`, () => {
-      const fcfe0 = 100;
-      const a = makeAssumptions({
-        growthYears: c.n1,
-        growthRate: c.g,
-        steadyRate: c.m,
-        terminalGrowth: c.t,
-        discountRate: c.R,
-        excessCashRatio: 0,
-      });
-      // No excess cash, no overrides → pure geometric path.
-      const r = calculateDCF(fcfe0, 0, 0, fcfe0, a);
-      const cf = closedFormDCF(c.g, c.m, c.t, c.R, c.n1, 10 - c.n1);
-      const scale = fcfe0 * (1 + c.g); // forward FCFE₁
-      expect(r.phase1PV).toBeCloseTo(cf.phase1 * scale, 4);
-      expect(r.phase2PV).toBeCloseTo(cf.phase2 * scale, 4);
-      expect(r.terminalPV).toBeCloseTo(cf.terminal * scale, 4);
-      expect(r.npv).toBeCloseTo(cf.total * scale, 4);
-    });
-  }
+describe('growthPath (fade)', () => {
+  it('starts at the full growth rate and converges toward terminal', () => {
+    const p = growthPath(0.9, 0.03, 0.7);
+    expect(p).toHaveLength(10);
+    expect(p[0]).toBeCloseTo(0.9, 12); // year 1 is never capped
+    expect(p[9]).toBeGreaterThan(0.03);
+    expect(p[9]).toBeLessThan(0.09); // most of the excess has decayed by year 10
+    for (let i = 1; i < p.length; i++) expect(p[i]).toBeLessThan(p[i - 1]);
+  });
+
+  it('decay = 1 never fades; decay = 0 drops to terminal after year 1', () => {
+    expect(growthPath(0.2, 0.03, 1)).toEqual(new Array(10).fill(0.2));
+    const none = growthPath(0.2, 0.03, 0);
+    expect(none[0]).toBeCloseTo(0.2, 12);
+    expect(none.slice(1)).toEqual(new Array(9).fill(0.03));
+  });
+
+  it('preserves ordering between companies — a faster grower stays ahead', () => {
+    // The old hard clamp collapsed 89% and 31% growers onto an identical path.
+    const fast = growthPath(0.89, 0.03, 0.7).reduce((a, g) => a * (1 + g), 1);
+    const mid = growthPath(0.31, 0.03, 0.7).reduce((a, g) => a * (1 + g), 1);
+    expect(fast).toBeGreaterThan(mid * 2);
+  });
+});
+
+describe('calculateDCF with a fading path', () => {
+  it('reproduces constant-growth compounding when decay = 1', () => {
+    // decay=1 disables the fade, so year 10 FCFE must be fcfe0·(1+g)^10 exactly.
+    const a = makeAssumptions({ growthRate: 0.12, growthDecay: 1, excessCashRatio: 0 });
+    const r = calculateDCF(100, 0, 0, 100, a);
+    expect(r.yearlyFCFE[9]).toBeCloseTo(100 * Math.pow(1.12, 10), 6);
+  });
+
+  it('is monotonic in growth persistence', () => {
+    const at = (d: number) =>
+      calculateDCF(100, 0, 0, 100, makeAssumptions({ growthRate: 0.3, growthDecay: d })).dcfPrice!;
+    expect(at(0.9)).toBeGreaterThan(at(0.7));
+    expect(at(0.7)).toBeGreaterThan(at(0.3));
+  });
+
+  it('has no discontinuity as growth crosses the old phase-length thresholds', () => {
+    // The retired growthYears rule stepped 6→5→4 at 10% and 20%, which could make
+    // value FALL as growth rose. Value must now be strictly increasing in growth.
+    const at = (g: number) =>
+      calculateDCF(100, 0, 0, 100, makeAssumptions({ growthRate: g })).dcfPrice!;
+    for (const edge of [0.10, 0.20]) {
+      expect(at(edge + 0.001)).toBeGreaterThan(at(edge - 0.001));
+    }
+  });
+
+  it('splits PV at a fixed year that does not move with growth', () => {
+    const lo = calculateDCF(100, 0, 0, 100, makeAssumptions({ growthRate: 0.05 }));
+    const hi = calculateDCF(100, 0, 0, 100, makeAssumptions({ growthRate: 0.30 }));
+    for (const r of [lo, hi]) {
+      expect(r.phase1PV + r.phase2PV + r.terminalPV + r.excessCash).toBeCloseTo(r.npv, 6);
+    }
+  });
 });
 
 describe('calculateFCFY', () => {
@@ -154,10 +179,8 @@ describe('calculateFCFY', () => {
     for (const g of [0.04, 0.12, 0.25]) {
       const a = makeAssumptions({
         growthRate: g,
-        steadyRate: (g + 0.03) / 2,
         terminalGrowth: 0.03,
         discountRate: 0.11,
-        growthYears: g < 0.1 ? 6 : g <= 0.2 ? 5 : 4,
         terminalHaircut: 0,
         excessCashRatio: 0,
       });
@@ -169,7 +192,7 @@ describe('calculateFCFY', () => {
   });
 
   it('splits the required yield into the three PV terms', () => {
-    const a = makeAssumptions({ growthRate: 0.12, steadyRate: 0.075, terminalHaircut: 0 });
+    const a = makeAssumptions({ growthRate: 0.12, terminalHaircut: 0 });
     const r = calculateFCFY(100, 100, a);
     const { phase1, phase2, terminal } = r.terms;
     // F = FCFE₁ / (S₁+S₂+S_T), per unit of FCFE₀
@@ -247,8 +270,7 @@ describe('computeDefaultAssumptions', () => {
       makeAssumptions()
     );
     expect(def.growthRate).toBeCloseTo(0.1, 4);
-    expect(def.growthYears).toBe(5); // 10% → 5 years
-    expect(def.steadyRate).toBeCloseTo((0.1 + 0.03) / 2, 6);
+    expect(def.growthDecay).toBe(DEFAULT_GROWTH_DECAY);
     expect(def.terminalGrowth).toBe(0.03);
   });
 
@@ -257,14 +279,21 @@ describe('computeDefaultAssumptions', () => {
     expect(def.growthRate).toBe(FALLBACK_GROWTH);
   });
 
-  it('clamps a runaway trailing CAGR to the growth ceiling', () => {
-    // FCF 10x over 3 years ≈ +115%/yr raw — not a defensible multi-year assumption.
-    const def = computeDefaultAssumptions(
-      [{ fy: 2021, fcf: 10 }, { fy: 2024, fcf: 100 }],
+  it('bounds only clearly-artifactual CAGRs, leaving real hypergrowth intact', () => {
+    // 10x over 3 years ≈ +115%/yr — beyond the artifact guard.
+    const artifact = computeDefaultAssumptions(
+      [{ fy: 2021, fcf: 1 }, { fy: 2024, fcf: 1000 }],
       makeAssumptions()
     );
-    expect(def.growthRate).toBe(GROWTH_BOUNDS.max);
-    expect(def.steadyRate).toBeLessThanOrEqual(STEADY_BOUNDS.max);
+    expect(artifact.growthRate).toBe(GROWTH_BOUNDS.max);
+    // 89%/yr — genuine hypergrowth — passes through untouched; the fade, not a
+    // clamp, is what stops it compounding absurdly.
+    const real = computeDefaultAssumptions(
+      [{ fy: 2021, fcf: 100 }, { fy: 2024, fcf: 676 }],
+      makeAssumptions()
+    );
+    expect(real.growthRate).toBeGreaterThan(0.85);
+    expect(real.growthRate).toBeLessThan(GROWTH_BOUNDS.max);
   });
 
   it('clamps a collapsing trailing CAGR to the growth floor', () => {
@@ -273,7 +302,6 @@ describe('computeDefaultAssumptions', () => {
       makeAssumptions()
     );
     expect(def.growthRate).toBe(GROWTH_BOUNDS.min);
-    expect(def.steadyRate).toBeGreaterThanOrEqual(STEADY_BOUNDS.min);
   });
 
   it('leaves a reasonable CAGR untouched', () => {
@@ -283,7 +311,6 @@ describe('computeDefaultAssumptions', () => {
       makeAssumptions()
     );
     expect(def.growthRate).toBeCloseTo(0.1, 6);
-    expect(def.steadyRate).toBeCloseTo((0.1 + 0.03) / 2, 6);
   });
 });
 

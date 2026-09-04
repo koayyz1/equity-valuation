@@ -21,22 +21,20 @@ export function MethodologyTab() {
         </p>
         <DefinitionList items={[
           {
-            term: 'Growth Phase (years)',
-            def: 'Number of years the company is expected to sustain its elevated growth rate. '
-              + 'Auto-set to 6 years when the historical FCF CAGR is below 10%, 5 years when '
-              + '10–20%, and 4 years when above 20%.',
+            term: 'Year-1 Growth Rate',
+            def: 'FCFE growth applied in year 1, taken from the 3-year historical FCF CAGR '
+              + '(falls back to 8% when no valid positive-to-positive window exists). It is '
+              + 'never capped for being high — only bounded against clear data artifacts — '
+              + 'because the fade below, not a cap, is what keeps growth from compounding '
+              + 'absurdly.',
           },
           {
-            term: 'Growth Phase Rate (Y1 – Yn)',
-            def: 'Annual FCFE growth rate applied during the growth phase. '
-              + 'Auto-set from the 3-year historical FCF CAGR; falls back to 15% when a valid '
-              + 'positive-to-positive CAGR window cannot be found. Range: 0% – 50%.',
-          },
-          {
-            term: 'Steady Phase Rate (Yn+1 – Y10)',
-            def: 'Annual FCFE growth rate applied in the remaining years up to Year 10. '
-              + 'Auto-set as the average of the growth rate and 3% — i.e. (growthRate + 3%) ÷ 2. '
-              + 'Range: 0% – 50%.',
+            term: 'Growth Persistence',
+            def: 'How much of the excess growth over terminal survives each year: '
+              + 'gₖ = t + (g − t) × persistence^(k−1). 0.7 (the default) means a 30% grower '
+              + 'runs 30 → 22 → 16 → 12 → 9 … toward terminal. 1 holds growth flat for a '
+              + 'decade; 0 drops to terminal immediately. This is the honest place to express '
+              + 'conservatism, since sustained multi-year growth persistence is rare.',
           },
           {
             term: 'Terminal Growth Rate',
@@ -66,7 +64,7 @@ export function MethodologyTab() {
         {/* ── DCF Model ── */}
         <Section title="DCF Valuation — Step-by-Step">
           <p className="text-sm text-gray-400 mb-4 leading-relaxed">
-            A three-phase, 10-year Discounted Cash Flow model applied to Free Cash Flow to
+            A 10-year Discounted Cash Flow model with a fading growth path, applied to Free Cash Flow to
             Equity (FCFE). The intrinsic value per share equals the net present value of all
             projected FCFE plus excess cash, divided by shares outstanding.
           </p>
@@ -96,11 +94,9 @@ export function MethodologyTab() {
 
           <SubSection title="Step 3 — Project FCFE for Years 1–10">
             <Formula>
-              {'FCFEᵧ = FCFEᵧ₋₁ × (1 + r)'}
+              {'FCFEᵧ = FCFEᵧ₋₁ × (1 + gᵧ)'}
               <br />
-              {'where r = growthRate  for Y1 … Yn'}
-              <br />
-              {'      r = steadyRate  for Y(n+1) … Y10'}
+              {'where gᵧ = t + (growthRate − t) × persistence^(y−1)'}
             </Formula>
             <p className="text-sm text-gray-400 mt-2 leading-relaxed">
               Each year's FCFE grows at the selected rate from the prior year's value. The model
@@ -187,16 +183,13 @@ export function MethodologyTab() {
             <DefinitionList items={[
               {
                 term: 'growthRate (default)',
-                def: '3-year FCF CAGR: (latestFCF / FCF₃ᵧₐᵣₛₐ𝓰ₒ)^(1/3) − 1. '
-                  + 'Falls back to 15% if a valid positive-to-positive window is not found.',
+                def: '3-year FCF CAGR: (latestFCF / FCF₃ᵧₐᵣₛₐ𝓰ₒ)^(1/3) − 1, bounded to '
+                  + '[−50%, +100%] purely as an artifact guard. Falls back to 8% if a valid '
+                  + 'positive-to-positive window is not found.',
               },
               {
-                term: 'growthYears (default)',
-                def: '6 years if growthRate < 10%; 5 years if 10%–20%; 4 years if > 20%.',
-              },
-              {
-                term: 'steadyRate (default)',
-                def: '(growthRate + 3%) ÷ 2 — a midpoint between the growth phase and long-run GDP.',
+                term: 'growthDecay (default)',
+                def: '0.70 — each year retains 70% of the prior year’s excess growth over terminal.',
               },
               {
                 term: 'terminalGrowth (default)',
@@ -217,7 +210,7 @@ export function MethodologyTab() {
           </p>
 
           <SubSection title="Step 1 — Compute Blended Growth Rate">
-            <Formula>{'Blended Growth = (growthYears × growthRate + (10 − growthYears) × steadyRate) / 10'}</Formula>
+            <Formula>{'Blended Growth = geometric mean of the 10 fade-path growth rates'}</Formula>
             <p className="text-sm text-gray-400 mt-2 leading-relaxed">
               The blended rate is the weighted-average annual growth over the full 10-year horizon,
               combining the growth-phase rate and the steady-phase rate. It summarises the entire
@@ -485,7 +478,7 @@ export function MethodologyTab() {
           {
             term: 'Blended Growth Rate',
             def: 'The weighted-average annual growth rate across the full 10-year horizon: '
-              + '(growthYears × growthRate + (10 − growthYears) × steadyRate) / 10. Reported as a '
+              + 'the geometric mean of the fading path. Reported as a '
               + 'summary of the assumed growth path; it no longer drives the required yield.',
           },
           {

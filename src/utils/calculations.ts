@@ -1,26 +1,58 @@
 import { DCFAssumptions, DCFResult, FCFYResult, UncertaintyLevel } from '../types';
 
-/** Bounds on the data-derived growth-phase rate. A trailing FCF CAGR is a noisy
- *  estimator — free cash flow is lumpy, so a single heavy-capex year at either
- *  endpoint can swing it wildly. Left unbounded it produced 89%/yr for NVDA and
- *  −18%/yr for KO, neither of which is a defensible multi-year assumption. */
-export const GROWTH_BOUNDS = { min: -0.05, max: 0.25 };
-/** Steady phase is a fade toward terminal, so it is bounded more tightly still. */
-export const STEADY_BOUNDS = { min: -0.02, max: 0.12 };
-/** Used when no positive-to-positive FCF window exists (was 15%, near the top of
- *  the observed range; 8% sits close to the large-cap median). */
+/**
+ * Sanity bound on the data-derived growth rate. This is an *artifact guard*, not
+ * a view on how fast a company may grow: a trailing FCF CAGR divides by a
+ * possibly tiny base year, so a heavy-capex year can produce a nonsense figure.
+ * Genuine hypergrowth passes through untouched — the fade below is what keeps
+ * high rates from compounding absurdly, so this no longer has to do that job and
+ * is deliberately wide. (An earlier ±25% clamp flattened NVDA, META and COST to
+ * an identical projection, destroying real differences between them.)
+ */
+export const GROWTH_BOUNDS = { min: -0.5, max: 1.0 };
+/** Used when no positive-to-positive FCF window exists. */
 export const FALLBACK_GROWTH = 0.08;
+/**
+ * Default growth persistence. 0.70 means each year retains 70% of the previous
+ * year's excess over terminal, so a 30% grower runs 30 → 22 → 16 → 12 → 9 …
+ * → terminal. Sustained multi-year growth persistence is empirically rare, so
+ * this fades meaningfully; it is exposed as an assumption rather than fixed.
+ */
+export const DEFAULT_GROWTH_DECAY = 0.7;
+/** Projection horizon, and the fixed year at which the PV split is reported.
+ *  The split is presentational only — it does not affect value, so unlike the
+ *  old adaptive growthYears it cannot create a discontinuity. */
+export const PROJECTION_YEARS = 10;
+export const PHASE_SPLIT_YEAR = 5;
+
+/**
+ * Per-year growth rates fading geometrically from `growthRate` toward
+ * `terminalGrowth`:  gₖ = t + (g − t) × decay^(k−1).
+ * Year 1 is exactly `growthRate` — nothing is capped.
+ */
+export function growthPath(
+  growthRate: number,
+  terminalGrowth: number,
+  growthDecay: number,
+  years: number = PROJECTION_YEARS
+): number[] {
+  const decay = clampRange(growthDecay, 0, 1);
+  const path: number[] = [];
+  for (let k = 1; k <= years; k++) {
+    path.push(terminalGrowth + (growthRate - terminalGrowth) * Math.pow(decay, k - 1));
+  }
+  return path;
+}
 
 /**
  * Compute data-driven default DCF assumptions from a company's FCF history.
  *
  * Rules:
  *  - growthRate  = 3-year FCF CAGR (falls back to whatever years are available),
- *                  clamped to GROWTH_BOUNDS. Falls back to FALLBACK_GROWTH if no
- *                  valid positive-to-positive window is found.
- *  - growthYears = 6 if growthRate < 10%, 5 if 10–20%, 4 if > 20%
- *  - steadyRate  = midpoint of growthRate and terminal, clamped to STEADY_BOUNDS
- *  - terminalGrowth = 3% (fixed)
+ *                  bounded only against data artifacts (GROWTH_BOUNDS). Falls
+ *                  back to FALLBACK_GROWTH if no positive-to-positive window
+ *                  exists.
+ *  - terminalGrowth = 3% (fixed); growth fades toward it at growthDecay.
  *  - All other fields kept from the supplied base assumptions.
  */
 export function computeDefaultAssumptions(
@@ -45,24 +77,11 @@ export function computeDefaultAssumptions(
     }
   }
 
-  const growthYears: number =
-    growthRate < 0.10 ? 6 :
-    growthRate <= 0.20 ? 5 : 4;
-
-  const terminalGrowth = 0.03;
-  // Steady phase fades from the growth rate toward terminal.
-  const steadyRate = clampRange(
-    (growthRate + terminalGrowth) / 2,
-    STEADY_BOUNDS.min,
-    STEADY_BOUNDS.max
-  );
-
   return {
     ...base,
     growthRate,
-    growthYears,
-    steadyRate,
-    terminalGrowth,
+    terminalGrowth: 0.03,
+    growthDecay: base.growthDecay ?? DEFAULT_GROWTH_DECAY,
   };
 }
 
@@ -192,10 +211,14 @@ export const UNCERTAINTY_LABELS: Record<UncertaintyLevel, string> = {
 };
 
 /**
- * 10-year, 3-phase DCF.
- *   Y1..growthYears    -> growthRate
- *   (growthYears+1)..10 -> steadyRate
- *   Terminal via Gordon Growth
+ * 10-year DCF with a fading growth path.
+ *   Yₖ FCFE grows at  gₖ = t + (growthRate − t) × growthDecay^(k−1)
+ *   Terminal via Gordon Growth on year 10
+ *
+ * Year 1 receives the full growth rate — nothing is capped — and the rate then
+ * converges toward terminal. This replaced a two-phase step (flat growthRate for
+ * N years, then flat steadyRate) that could only be tamed by capping growth or
+ * shortening the phase, both of which distorted genuine high growers.
  *
  * Optional year-by-year CapEx and Net Borrowing overrides (Y1..Y5) adjust the
  * projected FCFE away from the pure growth-rate path by the delta from the
@@ -210,9 +233,7 @@ export function calculateDCF(
   baseComponents?: { capex: number | null; netBorrowing: number | null }
 ): DCFResult {
   const {
-    growthYears,
     growthRate,
-    steadyRate,
     terminalGrowth,
     discountRate,
     uncertainty,
@@ -220,6 +241,7 @@ export function calculateDCF(
     capexOverrides,
     netBorrowingOverrides,
   } = assumptions;
+  const growthDecay = assumptions.growthDecay ?? DEFAULT_GROWTH_DECAY;
 
   const mos = getMOS(uncertainty);
   const empty: DCFResult = {
@@ -243,10 +265,14 @@ export function calculateDCF(
   const baseCapex = baseComponents?.capex ?? 0;
   const baseNB = baseComponents?.netBorrowing ?? 0;
 
+  // Growth fades geometrically from growthRate toward terminal — year 1 gets the
+  // full rate, and each later year retains growthDecay of the prior excess.
+  const path = growthPath(growthRate, terminalGrowth, growthDecay);
+
   const yearlyFCFE: number[] = [];
   let prev = fcfe0;
-  for (let y = 1; y <= 10; y++) {
-    const rate = y <= growthYears ? growthRate : steadyRate;
+  for (let y = 1; y <= PROJECTION_YEARS; y++) {
+    const rate = path[y - 1];
     let fcfe = prev * (1 + rate);
 
     // Apply year-by-year overrides for years 1..5 only.
@@ -267,18 +293,19 @@ export function calculateDCF(
       ? 0
       : (fcfeY10 * (1 + terminalGrowth)) / (discountRate - terminalGrowth);
 
-  // Split the discounted FCFE into the growth phase (yrs 1..growthYears) and the
-  // steady phase (yrs growthYears+1..10) — the first two additive terms of the
-  // closed-form DCF. Uses the actual override-adjusted cash flows, so the three
-  // terms plus excess cash always sum to NPV.
+  // Split the discounted FCFE at a fixed year for reporting. The boundary is
+  // presentational only — value is unaffected by where it sits, so unlike the
+  // old adaptive growthYears it cannot make value jump as growth crosses a
+  // threshold. Uses the override-adjusted cash flows, so the three terms plus
+  // excess cash always sum to NPV.
   let phase1PV = 0;
   let phase2PV = 0;
-  for (let y = 1; y <= 10; y++) {
+  for (let y = 1; y <= PROJECTION_YEARS; y++) {
     const disc = yearlyFCFE[y - 1] / Math.pow(1 + discountRate, y);
-    if (y <= growthYears) phase1PV += disc;
+    if (y <= PHASE_SPLIT_YEAR) phase1PV += disc;
     else phase2PV += disc;
   }
-  const terminalPV = terminalValue / Math.pow(1 + discountRate, 10);
+  const terminalPV = terminalValue / Math.pow(1 + discountRate, PROJECTION_YEARS);
   const npv = phase1PV + phase2PV + terminalPV + excessCash;
   const tvRatio = npv > 0 ? terminalPV / npv : null;
 
@@ -303,37 +330,6 @@ export function calculateDCF(
   };
 }
 
-/**
- * Closed-form present value of the 3-stage DCF, expressed per unit of forward
- * FCFE (year-1 cash flow = 1). Returns the three additive terms of
- *
- *   D = Phase1 PV + Phase2 PV + Terminal PV
- *
- * with n1 growth years at rate g, n2 steady years at m, and Gordon terminal at
- * t, discounted at R. Equivalent to summing calculateDCF's geometric cash flows
- * analytically (verified in the test-suite). Not used at runtime — the discrete
- * engine is authoritative because it also carries per-year overrides and excess
- * cash — but kept as documentation and a regression oracle. Undefined at the
- * singular points g=R, m=R, or t=R.
- */
-export function closedFormDCF(
-  g: number,
-  m: number,
-  t: number,
-  R: number,
-  n1 = 5,
-  n2 = 5
-): { phase1: number; phase2: number; terminal: number; total: number } {
-  const phase1 = (1 - Math.pow((1 + g) / (1 + R), n1)) / (R - g);
-  const phase2 =
-    (Math.pow(1 + g, n1 - 1) / Math.pow(1 + R, n1)) *
-    ((1 + m) / (R - m)) *
-    (1 - Math.pow((1 + m) / (1 + R), n2));
-  const terminal =
-    (Math.pow(1 + g, n1 - 1) * Math.pow(1 + m, n2) * (1 + t)) /
-    ((R - t) * Math.pow(1 + R, n1 + n2));
-  return { phase1, phase2, terminal, total: phase1 + phase2 + terminal };
-}
 
 /** Default share of terminal value discarded when setting the FCFY hurdle. */
 export const DEFAULT_TERMINAL_HAIRCUT = 0.5;
@@ -362,14 +358,22 @@ export function calculateFCFY(
   assumptions: DCFAssumptions,
   marketCap?: number | null
 ): FCFYResult {
-  const { growthYears, growthRate, steadyRate, uncertainty } = assumptions;
+  const { growthRate, terminalGrowth, uncertainty } = assumptions;
   const mos = getMOS(uncertainty);
   const haircut = Math.max(
     0,
     Math.min(1, assumptions.terminalHaircut ?? DEFAULT_TERMINAL_HAIRCUT)
   );
 
-  const blendedGrowth = (growthYears * growthRate + (10 - growthYears) * steadyRate) / 10;
+  // Compound annual rate implied by the fade path — the geometric mean, which is
+  // the correct summary of a varying growth sequence.
+  const path = growthPath(
+    growthRate,
+    terminalGrowth,
+    assumptions.growthDecay ?? DEFAULT_GROWTH_DECAY
+  );
+  const blendedGrowth =
+    Math.pow(path.reduce((a, g) => a * (1 + g), 1), 1 / path.length) - 1;
 
   // Required yield is the DCF's own implied forward yield — F = FCFE₁/(S₁+S₂+S_T)
   // — evaluated on a unit basis (FCFE₀ = 1, no cash, no per-year overrides) so it
@@ -498,18 +502,21 @@ export function scenarioAssumptions(base: DCFAssumptions): {
   base: DCFAssumptions;
   bull: DCFAssumptions;
 } {
+  const decay = base.growthDecay ?? DEFAULT_GROWTH_DECAY;
+  // Scenarios now also flex growth *persistence*, which is often the bigger swing
+  // factor than the year-1 rate: a bear case fades faster, a bull case holds on.
   const bear: DCFAssumptions = {
     ...base,
-    growthRate: clampRange(base.growthRate - 0.05, 0, 0.5),
-    steadyRate: clampRange(base.steadyRate - 0.03, 0, 0.5),
+    growthRate: clampRange(base.growthRate - 0.05, 0, 1.0),
+    growthDecay: clampRange(decay - 0.1, 0, 1),
     terminalGrowth: clampRange(base.terminalGrowth - 0.01, 0, 0.05),
     discountRate: clampRange(base.discountRate + 0.015, 0.05, 0.2),
     uncertainty: Math.min(4, base.uncertainty + 1) as UncertaintyLevel,
   };
   const bull: DCFAssumptions = {
     ...base,
-    growthRate: clampRange(base.growthRate + 0.05, 0, 0.5),
-    steadyRate: clampRange(base.steadyRate + 0.02, 0, 0.5),
+    growthRate: clampRange(base.growthRate + 0.05, 0, 1.0),
+    growthDecay: clampRange(decay + 0.1, 0, 1),
     terminalGrowth: clampRange(base.terminalGrowth + 0.005, 0, 0.05),
     discountRate: clampRange(base.discountRate - 0.01, 0.05, 0.2),
     uncertainty: Math.max(1, base.uncertainty - 1) as UncertaintyLevel,

@@ -65,9 +65,20 @@ export interface PriceData {
 export type UncertaintyLevel = 1 | 2 | 3 | 4;
 
 export interface DCFAssumptions {
-  growthYears: number;
+  /** Year-1 FCFE growth rate. Applied in full — never capped — then faded. */
   growthRate: number;
-  steadyRate: number;
+  /**
+   * Persistence of excess growth. Each year the gap between the current growth
+   * rate and terminal shrinks by (1 − growthDecay):
+   *
+   *   gₖ = t + (g − t) × growthDecay^(k−1)
+   *
+   * 1 = growth never fades (constant g for a decade); 0 = drops to terminal
+   * immediately. This replaces the old growthYears/steadyRate two-phase step,
+   * which could only express "high for N years, then flat" and so forced a
+   * choice between runaway compounding and capping real growth.
+   */
+  growthDecay: number;
   terminalGrowth: number;
   discountRate: number;
   uncertainty: UncertaintyLevel;
@@ -81,6 +92,11 @@ export interface DCFAssumptions {
    *  Indexed 0..4 for years 1..5. null means use default projection. */
   capexOverrides?: (number | null)[];
   netBorrowingOverrides?: (number | null)[];
+  /** @deprecated Superseded by growthDecay. Retained only so assumptions saved
+   *  by earlier versions (watchlist entries, presets) still deserialize. */
+  growthYears?: number;
+  /** @deprecated Superseded by growthDecay. */
+  steadyRate?: number;
 }
 
 export interface DCFResult {

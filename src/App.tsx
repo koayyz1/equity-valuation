@@ -30,7 +30,7 @@ const PortfolioTab = lazy(() =>
 );
 import { useCompanyData } from './hooks/useCompanyData';
 import { useWatchlist } from './hooks/useWatchlist';
-import { computeDefaultAssumptions, calculateDCF } from './utils/calculations';
+import { computeDefaultAssumptions, calculateDCF, DEFAULT_GROWTH_DECAY } from './utils/calculations';
 import { resolveValuationInputs } from './utils/valuationInputs';
 import { buildShareUrl, decodeShareState } from './utils/shareState';
 import { getPreset } from './utils/presets';
@@ -38,9 +38,8 @@ import { DCFAssumptions, FinancialData, Overrides } from './types';
 
 // Static base — non-dynamic fields; used as the template for computed defaults.
 const baseAssumptions: DCFAssumptions = {
-  growthYears: 5,
   growthRate: 0.15,
-  steadyRate: 0.09,
+  growthDecay: DEFAULT_GROWTH_DECAY,
   terminalGrowth: 0.03,
   discountRate: 0.11,
   uncertainty: 2,

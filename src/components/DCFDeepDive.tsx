@@ -1,6 +1,14 @@
 import { useMemo, useState } from 'react';
 import { DCFAssumptions, DCFResult, FinancialData, Overrides, PriceData } from '../types';
-import { calculateDCF, getMOS, reverseDCFGrowth, scenarioAssumptions } from '../utils/calculations';
+import {
+  calculateDCF,
+  getMOS,
+  reverseDCFGrowth,
+  scenarioAssumptions,
+  growthPath,
+  PHASE_SPLIT_YEAR,
+  DEFAULT_GROWTH_DECAY,
+} from '../utils/calculations';
 import { resolveValuationInputs } from '../utils/valuationInputs';
 import { formatCurrency, formatPercent } from '../utils/formatting';
 import { ProjectionTable } from './ProjectionTable';
@@ -70,7 +78,7 @@ export function DCFDeepDive({
 
   const sameAssumptions = (a: DCFAssumptions, b: DCFAssumptions) =>
     Math.abs(a.growthRate - b.growthRate) < 1e-6 &&
-    Math.abs(a.steadyRate - b.steadyRate) < 1e-6 &&
+    Math.abs((a.growthDecay ?? 0) - (b.growthDecay ?? 0)) < 1e-6 &&
     Math.abs(a.terminalGrowth - b.terminalGrowth) < 1e-6 &&
     Math.abs(a.discountRate - b.discountRate) < 1e-6 &&
     a.uncertainty === b.uncertainty;
@@ -88,7 +96,7 @@ export function DCFDeepDive({
 
       {/* Present-value breakdown — the three additive terms of the closed-form DCF */}
       {hasResult && (
-        <PVBreakdown result={result} growthYears={assumptions.growthYears} currency={currency} />
+        <PVBreakdown result={result} splitYear={PHASE_SPLIT_YEAR} currency={currency} />
       )}
 
       {/* Scenarios + Reverse DCF, side by side on wide screens */}
@@ -263,7 +271,12 @@ export function DCFDeepDive({
               terminalValue={result.terminalValue}
               currency={currency}
               discountRate={assumptions.discountRate}
-              growthYears={assumptions.growthYears}
+              splitYear={PHASE_SPLIT_YEAR}
+              growthPath={growthPath(
+                assumptions.growthRate,
+                assumptions.terminalGrowth,
+                assumptions.growthDecay ?? DEFAULT_GROWTH_DECAY
+              )}
             />
           </div>
         )}
@@ -280,11 +293,11 @@ export function DCFDeepDive({
  */
 function PVBreakdown({
   result,
-  growthYears,
+  splitYear,
   currency,
 }: {
   result: DCFResult;
-  growthYears: number;
+  splitYear: number;
   currency: string;
 }) {
   const npv = result.npv;
@@ -292,14 +305,14 @@ function PVBreakdown({
   const pieces = [
     {
       key: 'p1',
-      label: `Growth · yrs 1–${growthYears}`,
+      label: `Years 1–${splitYear}`,
       value: result.phase1PV,
       bar: 'bg-emerald-500',
       text: 'text-emerald-300',
     },
     {
       key: 'p2',
-      label: `Steady · yrs ${growthYears + 1}–10`,
+      label: `Years ${splitYear + 1}–10`,
       value: result.phase2PV,
       bar: 'bg-sky-500',
       text: 'text-sky-300',
