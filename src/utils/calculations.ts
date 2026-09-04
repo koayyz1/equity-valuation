@@ -342,6 +342,59 @@ export function calculateDCF(
 }
 
 
+export interface ValueRange {
+  low: number | null;
+  base: number | null;
+  high: number | null;
+  /** Base case with the margin-of-safety haircut — the actionable buy price. */
+  baseMOS: number | null;
+}
+
+/**
+ * Intrinsic value as a range rather than a point.
+ *
+ * A DCF is a function of assumptions that are guesses; quoting it to the cent
+ * implies a precision that does not exist. The band spans the bear and bull
+ * cases, and — on the owner-earnings basis — also the disagreement between the
+ * two maintenance-capex estimates, which is genuine estimation uncertainty
+ * rather than a modelling choice.
+ */
+export function valueRange(
+  earningsFor: (variant: 'low' | 'mid' | 'high') => number | null,
+  cash: number | null,
+  revenue: number | null,
+  shares: number | null,
+  assumptions: DCFAssumptions,
+  baseComponents?: { capex: number | null; netBorrowing: number | null }
+): ValueRange {
+  const scen = scenarioAssumptions(assumptions);
+  const price = (a: DCFAssumptions, variant: 'low' | 'mid' | 'high') =>
+    calculateDCF(earningsFor(variant), cash, revenue, shares, a, baseComponents);
+
+  // Pair the pessimistic scenario with the conservative earnings figure so the
+  // band reflects both sources of doubt at once.
+  const lowRes = price(scen.bear, 'low');
+  const baseRes = price(scen.base, 'mid');
+  const highRes = price(scen.bull, 'high');
+  return {
+    low: lowRes.dcfPrice,
+    base: baseRes.dcfPrice,
+    high: highRes.dcfPrice,
+    baseMOS: baseRes.dcfPriceMOS,
+  };
+}
+
+/**
+ * Round to two significant figures. Intrinsic value carries nowhere near
+ * cent-level precision, and showing it that way invites false confidence.
+ */
+export function roundSignificant(v: number | null, digits = 2): number | null {
+  if (v == null || !Number.isFinite(v) || v === 0) return v;
+  const mag = Math.floor(Math.log10(Math.abs(v)));
+  const factor = Math.pow(10, digits - 1 - mag);
+  return Math.round(v * factor) / factor;
+}
+
 /** Default share of terminal value discarded when setting the FCFY hurdle. */
 export const DEFAULT_TERMINAL_HAIRCUT = 0.5;
 

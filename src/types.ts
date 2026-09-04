@@ -29,6 +29,10 @@ export interface FinancialData {
   stockholdersEquity: number | null;
   goodwill: number | null;
   beta: number | null;
+  /** Inputs for the maintenance-capex estimate (EDGAR TTM). */
+  intangibleAmortization: number | null;
+  ppe: number | null;
+  priorRevenue: number | null;
   // Computed
   ebitda: number | null;
   netBorrowing: number | null;
@@ -81,6 +85,16 @@ export interface DCFAssumptions {
   growthDecay: number;
   terminalGrowth: number;
   discountRate: number;
+  /**
+   * Which cash figure the DCF capitalises.
+   *   'fcfe'          — CFO + capex + net borrowing (subtracts ALL capex)
+   *   'ownerEarnings' — CFO − maintenance capex, no net borrowing
+   * Owner earnings avoids penalising a company for investing at high returns,
+   * at the cost of relying on an estimated maintenance figure — which is why
+   * the value is presented as a range. Optional for back-compat with saved
+   * assumptions; defaults to 'fcfe'.
+   */
+  earningsBasis?: 'fcfe' | 'ownerEarnings';
   uncertainty: UncertaintyLevel;
   excessCashRatio: number;
   /** Forward FCF Yield conservatism lever: fraction of the DCF's terminal value

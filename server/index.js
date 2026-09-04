@@ -137,6 +137,9 @@ app.get('/api/financials/:cik', async (req, res) => {
       applyTtm('totalDebt', ttm.totalDebt);
       applyTtm('stockholdersEquity', ttm.stockholdersEquity);
       applyTtm('netBorrowing', ttm.netBorrowing);
+      applyTtm('intangibleAmortization', ttm.intangibleAmortization);
+      applyTtm('ppe', ttm.ppe);
+      applyTtm('priorRevenue', ttm.priorRevenue);
     }
 
     // ── Yahoo, as a supplement ───────────────────────────────────────────────

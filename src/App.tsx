@@ -467,6 +467,7 @@ export default function App() {
                     priceData={priceData}
                     overrides={overrides}
                     assumptions={assumptions}
+                    onAssumptionsChange={setAssumptions}
                   />
                   <FCFYModel
                     financials={financials}

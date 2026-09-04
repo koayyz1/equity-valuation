@@ -419,6 +419,10 @@ export function ttmFromQuarters(quarters) {
     asOf: rows[0]?.asOfDate ?? null,
     revenue: null, netIncome: null, cfo: null, capex: null, da: null,
     cash: null, totalDebt: null, stockholdersEquity: null, netBorrowing: null,
+    // Inputs the maintenance-capex estimate needs: intangible amortisation is
+    // stripped from D&A (it needs no cash replacement), and PP&E per dollar of
+    // revenue against revenue growth gives the second, independent estimate.
+    intangibleAmortization: null, ppe: null, priorRevenue: null,
   };
   if (rows.length < 4) return out;
 
@@ -435,6 +439,15 @@ export function ttmFromQuarters(quarters) {
   out.cfo = sum('quarterlyOperatingCashFlow');
   out.capex = sum('quarterlyCapitalExpenditure');
   out.da = sum('quarterlyDepreciationAmortization');
+  out.intangibleAmortization = sumLoose('quarterlyIntangibleAmortization');
+  out.ppe = latest('quarterlyPPE');
+  // Prior-year revenue for the revenue-intensity capex split.
+  if (rows.length >= 8) {
+    const prior = rows.slice(4, 8);
+    out.priorRevenue = prior.every((q) => q.quarterlyTotalRevenue != null)
+      ? prior.reduce((a, q) => a + q.quarterlyTotalRevenue, 0)
+      : null;
+  }
   out.cash = latest('quarterlyCashCashEquivalentsAndShortTermInvestments');
   out.totalDebt = latest('quarterlyTotalDebt');
   out.stockholdersEquity = latest('quarterlyStockholdersEquity');
