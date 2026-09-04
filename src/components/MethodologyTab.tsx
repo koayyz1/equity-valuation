@@ -294,179 +294,95 @@ export function MethodologyTab() {
 
       </div>
 
-      {/* ── Why the two valuation numbers differ ── */}
-      <Section title="DCF vs Forward FCF Yield — why the two numbers differ">
+      {/* ── How the two valuation numbers relate ── */}
+      <Section title="DCF vs Forward FCF Yield — how the two numbers relate">
         <p className="text-sm text-gray-400 mb-4 leading-relaxed">
-          Both models value the <strong className="text-gray-300">same cash flow</strong> (FCFE) —
-          they are not measuring different things. The entire difference is method: the DCF projects
-          ten years and discounts them plus a terminal value; the FCFY skips projection and
-          capitalises a single forward year at one required yield.
+          Both models value the <strong className="text-gray-300">same cash flow</strong> (FCFE) and,
+          since the FCFY was rebuilt, they share the <strong className="text-gray-300">same
+          maths</strong>. The FCFY no longer asserts a fitted yield — it inverts the DCF's own
+          closed form. Everything that separates the two numbers is now one explicit assumption:
+          the terminal haircut.
         </p>
 
-        <SubSection title="Both reduce to FCFE₁ ÷ a required yield">
+        <SubSection title="The required yield is derived, not fitted">
           <Formula>
-            {'DCF :  yield = 1 / (Phase1 + Phase2 + Terminal)     ← derived from the projection'}
+            {'F        = FCFE₁ / (S₁ + S₂ + S_T)              ← exactly DCF-equivalent'}
             <br />
-            {'FCFY:  yield = R + c − k × blendedGrowth            ← asserted by a fitted formula'}
+            {'required = FCFE₁ / (S₁ + S₂ + S_T × (1 − h))    ← h = terminal haircut'}
           </Formula>
           <p className="text-sm text-gray-400 mt-2 leading-relaxed">
-            This is the crux. In the DCF the required yield is an <em>emergent result</em> of ten
-            years of compounding plus the Gordon tail. In the FCFY it is simply stated by a
-            piecewise-linear rule whose constants are not derived from the DCF's own parameters.
+            At <strong className="text-gray-300">h = 0</strong> the FCFY price equals the DCF price
+            exactly (excluding excess cash) — a property asserted in the test-suite, so the two can
+            no longer drift apart unnoticed. Raising h discards a stated fraction of the terminal
+            term, turning the FCFY into a deliberately stricter hurdle rather than a rival estimate.
           </p>
         </SubSection>
 
-        <SubSection title="Which assumptions each model actually consumes">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border-collapse">
+        <SubSection title="The gap between them is fully determined">
+          <Formula>{'FCFY price / DCF price = 1 − h × (terminal share of value)'}</Formula>
+          <p className="text-sm text-gray-400 mt-2 leading-relaxed">
+            There is no residual mystery in the difference: it is the haircut multiplied by how much
+            of the company's value sits in the terminal term. A business whose value is mostly
+            near-term cash is barely affected; one that rests on the perpetuity is discounted hard.
+          </p>
+          <div className="overflow-x-auto mt-3">
+            <table className="text-sm border-collapse font-mono">
               <thead>
-                <tr className="text-[11px] uppercase tracking-wider text-gray-500">
-                  <th className="text-left font-medium py-1.5 pr-4 border-b border-gray-800">Input</th>
-                  <th className="text-left font-medium py-1.5 pr-4 border-b border-gray-800">DCF</th>
-                  <th className="text-left font-medium py-1.5 border-b border-gray-800">FCFY</th>
+                <tr className="text-[11px] text-gray-500">
+                  <th className="text-right font-medium py-1 pr-6">growth</th>
+                  <th className="text-right font-medium py-1 pr-6">terminal share</th>
+                  <th className="text-right font-medium py-1 pr-6">h = 0.25</th>
+                  <th className="text-right font-medium py-1 pr-6">h = 0.50</th>
+                  <th className="text-right font-medium py-1">h = 1.00</th>
                 </tr>
               </thead>
               <tbody className="text-gray-400">
                 {[
-                  ['growthRate (g)', 'Compounds geometrically for n₁ years', 'Linear, via the blended average'],
-                  ['steadyRate (m)', 'Compounds for n₂ years', 'Linear, via the blended average'],
-                  ['growthYears (n₁)', 'Sets the compounding horizon', 'Sets blend weights only'],
-                  ['terminalGrowth (t)', '1/(R−t) — drives 40–55% of value', 'Not used at all'],
-                  ['discountRate (R)', 'Discounts every year and the terminal', 'Linear intercept'],
-                  ['Excess cash', 'Added to NPV', 'Not used'],
-                  ['Margin of Safety', 'Applied', 'Applied — cancels, never the cause'],
-                ].map(([k, d, f]) => (
-                  <tr key={k} className="align-top">
-                    <td className="py-1.5 pr-4 border-b border-gray-800/60 font-mono text-[12px] text-gray-300 whitespace-nowrap">{k}</td>
-                    <td className="py-1.5 pr-4 border-b border-gray-800/60 text-[13px]">{d}</td>
-                    <td className={`py-1.5 border-b border-gray-800/60 text-[13px] ${f === 'Not used at all' ? 'text-amber-300' : ''}`}>{f}</td>
+                  ['4%', '48.2%', '0.88×', '0.76×', '0.52×'],
+                  ['12%', '53.7%', '0.87×', '0.73×', '0.46×'],
+                  ['25%', '60.2%', '0.85×', '0.70×', '0.40×'],
+                ].map((r) => (
+                  <tr key={r[0]}>
+                    <td className="text-right py-1 pr-6 text-gray-300">{r[0]}</td>
+                    <td className="text-right py-1 pr-6">{r[1]}</td>
+                    <td className="text-right py-1 pr-6">{r[2]}</td>
+                    <td className="text-right py-1 pr-6">{r[3]}</td>
+                    <td className="text-right py-1">{r[4]}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
           <p className="text-sm text-gray-400 mt-2 leading-relaxed">
-            The decisive row is <strong className="text-gray-300">terminalGrowth</strong>. It is the
-            DCF's most powerful lever and the FCFY formula contains no terminal-growth term at all.
+            Faster-growing companies carry more of their value in the terminal term, so the same
+            haircut bites harder — which is the intended behaviour: the further out the value sits,
+            the less certain it is.
           </p>
         </SubSection>
 
-        <SubSection title="Sensitivity — how each model responds">
-          <p className="text-sm text-gray-400 mb-3 leading-relaxed">
-            Values below are per $1 of trailing FCFE (i.e. the multiple each model pays), base case
-            g = 12%, m = 7.5%, t = 3%, R = 11%, one variable moved at a time.
-          </p>
-
-          <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-1">
-            A · Terminal growth — FCFY is a flat line
-          </div>
-          <div className="overflow-x-auto mb-4">
-            <table className="text-sm border-collapse font-mono">
-              <thead>
-                <tr className="text-[11px] text-gray-500">
-                  <th className="text-right font-medium py-1 pr-6">t</th>
-                  <th className="text-right font-medium py-1 pr-6">DCF</th>
-                  <th className="text-right font-medium py-1 pr-6">FCFY</th>
-                  <th className="text-right font-medium py-1">DCF/FCFY</th>
-                </tr>
-              </thead>
-              <tbody className="text-gray-400">
-                {[['0%', '17.99', '12.21', '1.47×'], ['2%', '19.99', '12.21', '1.64×'],
-                  ['3%', '21.36', '12.21', '1.75×'], ['5%', '25.49', '12.21', '2.09×']].map((r) => (
-                  <tr key={r[0]}>
-                    <td className="text-right py-1 pr-6 text-gray-300">{r[0]}</td>
-                    <td className="text-right py-1 pr-6">{r[1]}</td>
-                    <td className="text-right py-1 pr-6 text-amber-300">{r[2]}</td>
-                    <td className="text-right py-1">{r[3]}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-sm text-gray-400 mb-4 leading-relaxed">
-            Across that range the DCF gains <strong className="text-gray-300">+42%</strong> while the
-            FCFY does not move at all.
-          </p>
-
-          <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-1">
-            B · Growth rate — compounding beats a linear discount
-          </div>
-          <div className="overflow-x-auto mb-4">
-            <table className="text-sm border-collapse font-mono">
-              <thead>
-                <tr className="text-[11px] text-gray-500">
-                  <th className="text-right font-medium py-1 pr-6">g</th>
-                  <th className="text-right font-medium py-1 pr-6">DCF</th>
-                  <th className="text-right font-medium py-1 pr-6">FCFY</th>
-                  <th className="text-right font-medium py-1">DCF/FCFY</th>
-                </tr>
-              </thead>
-              <tbody className="text-gray-400">
-                {[['4%', '13.67', '8.33', '1.64×'], ['12%', '21.36', '12.21', '1.75×'],
-                  ['16%', '26.69', '13.97', '1.91×'], ['20%', '33.28', '13.63', '2.44×'],
-                  ['25%', '40.33', '15.77', '2.56×']].map((r) => (
-                  <tr key={r[0]}>
-                    <td className="text-right py-1 pr-6 text-gray-300">{r[0]}</td>
-                    <td className="text-right py-1 pr-6">{r[1]}</td>
-                    <td className="text-right py-1 pr-6">{r[2]}</td>
-                    <td className="text-right py-1">{r[3]}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="text-sm text-gray-400 mb-4 leading-relaxed">
-            DCF rises +195% across the range versus +89% for FCFY. Note the FCFY value{' '}
-            <em>falls</em> from 13.97 to 13.63 as growth rises from 16% to 20% — a discontinuity
-            where the blended rate crosses the 15% band boundary.
-          </p>
-
-          <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-1">
-            C · Discount rate — the one input both treat alike
-          </div>
-          <div className="overflow-x-auto mb-2">
-            <table className="text-sm border-collapse font-mono">
-              <thead>
-                <tr className="text-[11px] text-gray-500">
-                  <th className="text-right font-medium py-1 pr-6">R</th>
-                  <th className="text-right font-medium py-1 pr-6">DCF</th>
-                  <th className="text-right font-medium py-1 pr-6">FCFY</th>
-                  <th className="text-right font-medium py-1">DCF/FCFY</th>
-                </tr>
-              </thead>
-              <tbody className="text-gray-400">
-                {[['8%', '35.64', '18.14', '1.96×'], ['10%', '24.74', '13.70', '1.81×'],
-                  ['11%', '21.36', '12.21', '1.75×'], ['13%', '16.67', '10.02', '1.66×']].map((r) => (
-                  <tr key={r[0]}>
-                    <td className="text-right py-1 pr-6 text-gray-300">{r[0]}</td>
-                    <td className="text-right py-1 pr-6">{r[1]}</td>
-                    <td className="text-right py-1 pr-6">{r[2]}</td>
-                    <td className="text-right py-1">{r[3]}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <SubSection title="What each surfaces">
           <p className="text-sm text-gray-400 leading-relaxed">
-            Both fall as R rises and the ratio stays in a tight 1.66–1.96× band. Excess cash adds a
-            further wedge: at the base case it lifts the DCF ~13% while the FCFY ignores it entirely.
+            The DCF answers <em>"what is this worth?"</em> and is the valuation. The FCFY answers{' '}
+            <em>"does today's cash yield clear the bar these assumptions imply, if I only
+            part-credit the perpetuity?"</em> and is a hurdle. Because the second is now derived
+            from the first, agreement between them is guaranteed rather than informative — the
+            useful reading is the <strong className="text-gray-300">yield gap</strong> (offered
+            minus required) and the <strong className="text-gray-300">terminal share</strong>, both
+            shown on their respective cards.
           </p>
         </SubSection>
 
-        <SubSection title="How to read the two numbers">
+        <SubSection title="Note on the previous approach">
           <p className="text-sm text-gray-400 leading-relaxed">
-            The gap is <strong className="text-gray-300">structural, one-directional and roughly
-            constant</strong> (1.5–2.6×), so "the two models agree" is not a signal — the bias is
-            baked in rather than informative. Treat the{' '}
-            <strong className="text-gray-300">DCF as the valuation</strong> and the FCFY's minimum
-            yield as a <strong className="text-gray-300">hurdle rate or screening filter</strong>. The
-            FCFY answers a deliberately different question: <em>"what would I pay if I refused to
-            underwrite any terminal value at all?"</em> — which is why it is always the more
-            conservative figure.
+            Until recently the FCFY set its yield from a piecewise-linear fit in three growth bands,
+            with intercepts of R + 1% to R + 3%. Because those constants were not tied to the DCF's
+            terminal growth, the two models disagreed by 1.5–2.6× with no stated reason, the fit was
+            discontinuous at the band boundaries (at one, the implied price <em>fell</em> as growth
+            rose), and extrapolating it far enough produced a negative required yield and a negative
+            fair value. The derivation above removes all four failure modes by construction.
           </p>
         </SubSection>
       </Section>
-
       {/* ── Metric Definitions ── */}
       <Section title="Metric Definitions">
         <p className="text-sm text-gray-400 mb-4 leading-relaxed">
@@ -568,16 +484,27 @@ export function MethodologyTab() {
           },
           {
             term: 'Blended Growth Rate',
-            def: 'FCFY-model only. The weighted-average annual growth rate across the full '
-              + '10-year horizon: (growthYears × growthRate + (10 − growthYears) × steadyRate) / 10. '
-              + 'Determines which piecewise band of the required-yield formula is applied.',
+            def: 'The weighted-average annual growth rate across the full 10-year horizon: '
+              + '(growthYears × growthRate + (10 − growthYears) × steadyRate) / 10. Reported as a '
+              + 'summary of the assumed growth path; it no longer drives the required yield.',
           },
           {
-            term: 'Required Minimum FCF Yield (minYield)',
-            def: 'FCFY-model only. The minimum trailing FCF yield the stock must offer today '
-              + 'for an investor to achieve the target IRR given the projected growth path. '
-              + 'Derived from the piecewise formula calibrated to the blended growth rate '
-              + 'and discount rate.',
+            term: 'Required Yield',
+            def: 'FCFY-model only. The forward FCFE yield the stock must offer today to clear the '
+              + 'hurdle: FCFE₁ / (S₁ + S₂ + S_T × (1 − terminal haircut)). With a zero haircut this '
+              + 'is the DCF’s own implied yield, so the two models agree exactly.',
+          },
+          {
+            term: 'Terminal Haircut',
+            def: 'FCFY-model only. The fraction of the DCF’s terminal value discarded when '
+              + 'setting the required yield — the model’s conservatism lever. 0 reproduces the '
+              + 'DCF; 1 credits no terminal value at all. Default 50%.',
+          },
+          {
+            term: 'Yield Gap',
+            def: 'Actual forward FCFE yield (FCFE₁ / market cap) minus the required yield. '
+              + 'Positive means the stock clears the hurdle. This single comparison drives the '
+              + 'verdict everywhere it appears, including the watchlist.',
           },
           {
             term: 'Intrinsic Value',

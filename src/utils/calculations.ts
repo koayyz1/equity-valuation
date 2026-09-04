@@ -408,6 +408,8 @@ export function calculateFCFY(
 
   const actualYield =
     fcfeY1 != null && marketCap != null && marketCap > 0 ? fcfeY1 / marketCap : null;
+  const clearsHurdle =
+    actualYield != null && Number.isFinite(requiredYield) ? actualYield >= requiredYield : null;
 
   return {
     requiredYield,
@@ -416,6 +418,7 @@ export function calculateFCFY(
     terms: { phase1: s1, phase2: s2, terminal: sT },
     terminalShare: baseSum > 0 ? sT / baseSum : null,
     actualYield,
+    clearsHurdle,
     blendedGrowth,
     fcfyPrice,
     fcfyPriceMOS,

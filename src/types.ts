@@ -111,6 +111,11 @@ export interface FCFYResult {
   terminalShare: number | null;
   /** FCFE₁ / market cap — what the stock actually offers today. */
   actualYield: number | null;
+  /** Single source of truth for the verdict: does the offered yield meet the
+   *  hurdle? Null when no market cap was supplied. Every surface must use this
+   *  rather than re-deriving a threshold, or the same stock reads differently
+   *  in the detail view and the watchlist. */
+  clearsHurdle: boolean | null;
   blendedGrowth: number;
   fcfyPrice: number | null;
   fcfyPriceMOS: number | null;

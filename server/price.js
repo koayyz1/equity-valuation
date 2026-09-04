@@ -18,29 +18,71 @@ let yfCookie = null;
 let yfCrumbTime = 0;
 const CRUMB_TTL_MS = 10 * 60 * 1000; // 10 min
 
+/**
+ * Health of the crumb-authenticated Yahoo path. The chart endpoint (prices,
+ * history) needs no auth and keeps working regardless; everything from
+ * quoteSummary — beta, analyst targets, and the Yahoo TTM figures the DCF
+ * prefers over EDGAR annuals — depends on this. Datacenter IPs are frequently
+ * blocked by Yahoo, so this can be healthy locally and failing in production.
+ * Exposed so the API can report the degradation instead of hiding it.
+ */
+export const yahooStatus = { ok: null, lastError: null, checkedAt: 0 };
+
 async function ensureCrumb() {
   const now = Date.now();
   if (yfCrumb && yfCookie && now - yfCrumbTime < CRUMB_TTL_MS) return;
 
-  const initRes = await fetch('https://fc.yahoo.com/', {
-    headers: YF_HEADERS,
-    redirect: 'manual',
-  });
-  const rawCookies = initRes.headers.getSetCookie?.() || [];
-  let cookieJar = rawCookies;
-  if (!cookieJar.length) {
-    const raw = initRes.headers.get('set-cookie');
-    cookieJar = raw ? raw.split(/,(?=\s*[A-Za-z0-9_]+=)/) : [];
-  }
-  yfCookie = cookieJar.map((c) => c.split(';')[0].trim()).filter(Boolean).join('; ');
+  let lastErr = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const initRes = await fetch('https://fc.yahoo.com/', {
+        headers: YF_HEADERS,
+        redirect: 'manual',
+      });
+      const rawCookies = initRes.headers.getSetCookie?.() || [];
+      let cookieJar = rawCookies;
+      if (!cookieJar.length) {
+        const raw = initRes.headers.get('set-cookie');
+        cookieJar = raw ? raw.split(/,(?=\s*[A-Za-z0-9_]+=)/) : [];
+      }
+      const cookie = cookieJar.map((c) => c.split(';')[0].trim()).filter(Boolean).join('; ');
+      if (!cookie) throw new Error('no session cookie returned');
 
-  const crumbRes = await fetch(
-    'https://query2.finance.yahoo.com/v1/test/getcrumb',
-    { headers: { ...YF_HEADERS, Cookie: yfCookie } }
+      const crumbRes = await fetch('https://query2.finance.yahoo.com/v1/test/getcrumb', {
+        headers: { ...YF_HEADERS, Cookie: cookie },
+      });
+      if (!crumbRes.ok) throw new Error(`getcrumb ${crumbRes.status}`);
+      const crumb = (await crumbRes.text()).trim();
+      // A real crumb is a short opaque token; an error page is long HTML.
+      if (!crumb || crumb.length > 64 || /[<>]/.test(crumb)) {
+        throw new Error('crumb payload malformed (likely a block page)');
+      }
+
+      yfCookie = cookie;
+      yfCrumb = crumb;
+      yfCrumbTime = now;
+      if (yahooStatus.ok === false) {
+        console.log('[yahoo] crumb auth recovered');
+      }
+      yahooStatus.ok = true;
+      yahooStatus.lastError = null;
+      yahooStatus.checkedAt = now;
+      return;
+    } catch (err) {
+      lastErr = err;
+      if (attempt < 2) await new Promise((r) => setTimeout(r, 400 * (attempt + 1)));
+    }
+  }
+
+  yahooStatus.ok = false;
+  yahooStatus.lastError = lastErr?.message || 'unknown';
+  yahooStatus.checkedAt = now;
+  console.error(
+    '[yahoo] crumb auth failed — beta, analyst targets and Yahoo TTM figures are ' +
+      'unavailable; valuations fall back to EDGAR annuals:',
+    yahooStatus.lastError
   );
-  if (!crumbRes.ok) throw new Error(`Crumb fetch failed: ${crumbRes.status}`);
-  yfCrumb = await crumbRes.text();
-  yfCrumbTime = now;
+  throw lastErr;
 }
 
 // Fetch a crumb-authenticated Yahoo endpoint. `buildUrl` is a function (not a
@@ -578,7 +620,12 @@ export async function getYahooFinancials(ticker) {
     }
 
     // Beta from the shared quoteSummary (chart endpoint doesn't reliably return it).
-    const beta = qsResult?.defaultKeyStatistics?.beta?.raw ?? null;
+    // summaryDetail carries the same figure and is a free fallback — both modules
+    // are already in the one request.
+    const beta =
+      qsResult?.defaultKeyStatistics?.beta?.raw ??
+      qsResult?.summaryDetail?.beta?.raw ??
+      null;
 
     const v = (key) => values[key]?.value ?? null;
 

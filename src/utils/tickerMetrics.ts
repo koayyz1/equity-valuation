@@ -1,5 +1,6 @@
 import { DCFAssumptions } from '../types';
 import { calculateDCF, computeDefaultAssumptions } from './calculations';
+import { fetchJson as robustFetchJson } from './fetchJson';
 
 /** A single ticker's headline metrics, used by the Peers and Screener tables. */
 export interface TickerMetrics {
@@ -33,14 +34,13 @@ const BASE: DCFAssumptions = {
   netBorrowingOverrides: [null, null, null, null, null],
 };
 
-async function fetchJson(url: string) {
-  try {
-    const r = await fetch(url);
-    return r.ok ? await r.json() : null;
-  } catch {
-    return null;
-  }
-}
+/**
+ * Screener/watchlist variant: the shared fetchJson retries the transient edge
+ * failures (plain-text "Not Found", 5xx) that show up exactly when this module
+ * fans out dozens of concurrent requests. Callers here want a null on failure
+ * rather than a throw, so swallow after the retries are exhausted.
+ */
+const fetchJson = (url: string) => robustFetchJson<any>(url).catch(() => null);
 
 /**
  * Fetch one ticker's headline metrics (price, valuation ratios, returns, and a

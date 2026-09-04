@@ -117,7 +117,9 @@ function computeMetrics(
     netBorrowing: entry.overrides.netBorrowing ?? financials.netBorrowing,
   };
   const dcfResult = calculateDCF(fcfe, cash, revenue, shares, entry.assumptions, baseComp);
-  const fcfyResult = calculateFCFY(fcfe, shares, entry.assumptions);
+  // Pass the market cap so the yield comparison — and therefore the verdict —
+  // matches the detail view rather than being re-derived from a MOS price.
+  const fcfyResult = calculateFCFY(fcfe, shares, entry.assumptions, mktCap);
 
   // Bear / Bull scenario intrinsic values, derived from the entry's base assumptions.
   const scen = scenarioAssumptions(entry.assumptions);

@@ -36,13 +36,8 @@ export function FCFYModel({
   const mos = getMOS(assumptions.uncertainty);
   const fcfeY1 = fcfe != null ? fcfe * (1 + assumptions.growthRate) : null;
 
-  // The hurdle is now meaningful on its own terms: the stock clears it when what
-  // it actually yields today beats the yield the assumptions demand.
-  const clearsHurdle =
-    result.actualYield != null && Number.isFinite(result.requiredYield)
-      ? result.actualYield >= result.requiredYield
-      : null;
-  const isUndervalued = clearsHurdle ?? referenceUndervalued ?? false;
+  // Verdict comes from the model itself so every surface agrees.
+  const isUndervalued = result.clearsHurdle ?? referenceUndervalued ?? false;
   const hasResult = result.fcfyPrice != null;
   const yieldGap =
     result.actualYield != null && Number.isFinite(result.requiredYield)

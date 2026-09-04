@@ -20,6 +20,7 @@ import {
   getCompanyProfile,
   getAnalystEstimates,
   getYahooSharesIssued,
+  yahooStatus,
 } from './price.js';
 import { withCache, TTL } from './cache.js';
 
@@ -67,7 +68,15 @@ if (AUTH_PASS) {
 // Render for each build, so `commit` tells you exactly which build is live.
 const BUILD_COMMIT = process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || 'dev';
 app.get('/api/health', (_req, res) =>
-  res.json({ ok: true, commit: BUILD_COMMIT, node: process.version })
+  res.json({
+    ok: true,
+    commit: BUILD_COMMIT,
+    node: process.version,
+    // Yahoo's crumb-authenticated path is frequently blocked on datacenter IPs.
+    // When it is down, prices still work but beta, analyst targets and the TTM
+    // figures the DCF prefers silently fall back to EDGAR annuals — so report it.
+    yahoo: yahooStatus,
+  })
 );
 
 // Ticker -> CIK + company name
@@ -97,6 +106,10 @@ app.get('/api/financials/:cik', async (req, res) => {
     // Merge: Yahoo wins for Revenue (TTM), Cash, CapEx, Net Borrowing.
     // D&A stays from EDGAR — Yahoo's includes content amortization (inflates NFLX etc.).
     const merged = { ...edgar };
+    // When the Yahoo path is down the merge below is skipped entirely and the
+    // DCF silently runs on EDGAR annuals instead of TTM. Flag it so the client
+    // can say so rather than presenting degraded inputs as normal.
+    merged.yahooOk = !!yahoo;
 
     if (yahoo) {
       merged._yahoo = yahoo; // pass raw Yahoo data for debugging
