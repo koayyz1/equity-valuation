@@ -85,6 +85,19 @@ export function computeDefaultAssumptions(
   };
 }
 
+/**
+ * Cash above the working-capital reserve, i.e. the portion that could in
+ * principle be distributed today. Shared by the DCF and ROCE so the two cannot
+ * drift apart on what counts as "excess".
+ */
+export function computeExcessCash(
+  cash: number | null,
+  revenue: number | null,
+  excessCashRatio = 0.02
+): number {
+  return cash != null && revenue != null ? Math.max(0, cash - excessCashRatio * revenue) : 0;
+}
+
 /** Clamp a tax rate into [0, 1]; fall back to the US statutory 21% when missing. */
 export function clampTaxRate(taxRate: number | null | undefined, fallback = 0.21): number {
   if (taxRate == null) return fallback;
@@ -148,8 +161,7 @@ export function computeROCE({
   excessCashRatio = 0.02,
 }: ROCEInputs): number | null {
   const nopat = ebit != null ? ebit * (1 - clampTaxRate(taxRate)) : null;
-  const excessCash =
-    cash != null && revenue != null ? Math.max(0, cash - excessCashRatio * revenue) : 0;
+  const excessCash = computeExcessCash(cash, revenue, excessCashRatio);
   const denom = investedCapital != null ? investedCapital + excessCash : null;
   return nopat != null && denom != null && denom > 0 ? nopat / denom : null;
 }
@@ -259,8 +271,7 @@ export function calculateDCF(
 
   if (fcfe0 == null) return empty;
 
-  const excessCash =
-    cash != null && revenue != null ? Math.max(0, cash - excessCashRatio * revenue) : 0;
+  const excessCash = computeExcessCash(cash, revenue, excessCashRatio);
 
   const baseCapex = baseComponents?.capex ?? 0;
   const baseNB = baseComponents?.netBorrowing ?? 0;
@@ -358,28 +369,22 @@ export function calculateFCFY(
   assumptions: DCFAssumptions,
   marketCap?: number | null
 ): FCFYResult {
-  const { growthRate, terminalGrowth, uncertainty } = assumptions;
+  const { growthRate, uncertainty } = assumptions;
   const mos = getMOS(uncertainty);
   const haircut = Math.max(
     0,
     Math.min(1, assumptions.terminalHaircut ?? DEFAULT_TERMINAL_HAIRCUT)
   );
 
-  // Compound annual rate implied by the fade path — the geometric mean, which is
-  // the correct summary of a varying growth sequence.
-  const path = growthPath(
-    growthRate,
-    terminalGrowth,
-    assumptions.growthDecay ?? DEFAULT_GROWTH_DECAY
-  );
-  const blendedGrowth =
-    Math.pow(path.reduce((a, g) => a * (1 + g), 1), 1 / path.length) - 1;
-
   // Required yield is the DCF's own implied forward yield — F = FCFE₁/(S₁+S₂+S_T)
   // — evaluated on a unit basis (FCFE₀ = 1, no cash, no per-year overrides) so it
-  // is scale-free. Running it through the discrete engine rather than the closed
+  // is scale-free. Running it through the discrete engine rather than a closed
   // form keeps every edge case consistent with the DCF (terminal zeroed when
-  // t ≥ R, g = R, the adaptive growth-phase length).
+  // t ≥ R, the fading growth path) and means a fade has no closed form to drift
+  // from. Note this makes every calculateFCFY call a calculateDCF call: the
+  // watchlist therefore runs four projections per row (base, bear, bull, and
+  // this one). At ten iterations each, computed once per fetch rather than per
+  // render, that is deliberately not worth optimising away.
   const unit = calculateDCF(1, 0, 0, 1, {
     ...assumptions,
     capexOverrides: undefined,
@@ -423,7 +428,6 @@ export function calculateFCFY(
     terminalShare: baseSum > 0 ? sT / baseSum : null,
     actualYield,
     clearsHurdle,
-    blendedGrowth,
     fcfyPrice,
     fcfyPriceMOS,
   };

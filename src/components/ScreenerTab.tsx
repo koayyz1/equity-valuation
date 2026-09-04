@@ -87,7 +87,10 @@ function loadSets(): CustomSet[] {
       const p = JSON.parse(raw);
       if (Array.isArray(p)) return p.filter((s) => s && typeof s.name === 'string' && Array.isArray(s.tickers));
     }
-  } catch {}
+  } catch {
+    // Unreadable or corrupt storage (private mode, quota, hand-edited JSON) —
+    // fall through to the empty default rather than blocking the tab.
+  }
   return [];
 }
 
@@ -122,7 +125,9 @@ function loadStoredState(): {
       const customTickers = Array.isArray(parsed?.customTickers) ? parsed.customTickers : undefined;
       return { universeKey, filters, customTickers };
     }
-  } catch {}
+  } catch {
+    // Same: a bad stored blob should not stop the screener rendering.
+  }
   return {};
 }
 
@@ -144,6 +149,9 @@ export function ScreenerTab({
   const [customInput, setCustomInput] = useState('');
   const [savedSets, setSavedSets] = useState<CustomSet[]>(() => loadSets());
   const [rows, setRows] = useState<TickerMetrics[]>([]);
+  // Tickers whose fetch failed even after retries. Without this a failed ticker
+  // just never appears, so the screen reads "20/20 done" while showing 17 rows.
+  const [failed, setFailed] = useState<string[]>([]);
   const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [sortKey, setSortKey] = useState<keyof TickerMetrics>('upside');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
@@ -152,14 +160,18 @@ export function ScreenerTab({
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify({ universeKey, filters, customTickers }));
-    } catch {}
+    } catch {
+      // Persistence is a convenience; a write failure must not break the screen.
+    }
   }, [universeKey, filters, customTickers]);
 
   const persistSets = (sets: CustomSet[]) => {
     setSavedSets(sets);
     try {
       localStorage.setItem(SETS_KEY, JSON.stringify(sets));
-    } catch {}
+    } catch {
+      // As above — the in-memory set list still updates.
+    }
   };
 
   const addCustom = (raw: string) => {
@@ -189,6 +201,7 @@ export function ScreenerTab({
     if (!universe.length) return;
     stopRef.current = false;
     setRows([]);
+    setFailed([]);
     setProgress({ done: 0, total: universe.length });
     // Stream rows into the table as each ticker settles; stop dispatching new
     // fetches as soon as the user hits Stop.
@@ -196,8 +209,9 @@ export function ScreenerTab({
       universe,
       fetchTickerMetrics,
       6,
-      (_ticker, result) => {
+      (ticker, result) => {
         if (result) setRows((prev) => [...prev, result]);
+        else setFailed((prev) => [...prev, ticker]);
         setProgress((p) => (p ? { ...p, done: p.done + 1 } : p));
       },
       () => stopRef.current
@@ -317,6 +331,16 @@ export function ScreenerTab({
           )}
           {universeKey === 'watchlist' && watchlistTickers.length === 0 && (
             <span className="text-[11px] text-amber-500/80">Your watchlists are empty.</span>
+          )}
+          {!running && failed.length > 0 && (
+            <span
+              className="text-[11px] text-amber-500/80"
+              title={failed.join(', ')}
+            >
+              {failed.length} ticker{failed.length > 1 ? 's' : ''} failed to load (
+              {failed.slice(0, 3).join(', ')}
+              {failed.length > 3 ? `, +${failed.length - 3}` : ''}) — re-run to retry.
+            </span>
           )}
         </div>
 

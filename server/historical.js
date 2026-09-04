@@ -264,7 +264,17 @@ function applyAnnualSign(map, sign) {
 
 export async function getEdgarPeriodicFinancials(cik, period = 'quarterly', n = 8) {
   const facts = (await getCompanyFactsCached(cik)).facts || {};
+  return buildPeriodsFromFacts(facts, period, n);
+}
 
+/**
+ * Pure core of the above: turn an EDGAR companyfacts `facts` object into period
+ * rows. Split out from the fetch so the tag chains, the YTD→quarterly
+ * conversion and the sign conventions can be exercised against fixtures — these
+ * are exactly the parts that break silently when a filer changes tags, and they
+ * were previously untested.
+ */
+export function buildPeriodsFromFacts(facts, period = 'quarterly', n = 8) {
   const mapByMetric = new Map();
 
   for (const [name, def] of Object.entries(METRIC_DEF)) {

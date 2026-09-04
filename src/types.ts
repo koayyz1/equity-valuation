@@ -107,10 +107,11 @@ export interface DCFResult {
   dcfPrice: number | null;
   dcfPriceMOS: number | null;
   tvRatio: number | null;
-  // Present value split into the three additive terms of the closed-form DCF,
-  // computed from the actual (override-adjusted) discounted cash flows.
-  phase1PV: number; // growth phase: years 1..growthYears
-  phase2PV: number; // steady phase: years growthYears+1..10
+  // Present value split into three additive terms, computed from the actual
+  // (override-adjusted) discounted cash flows. The year boundary is fixed and
+  // presentational — it does not affect value.
+  phase1PV: number; // years 1..PHASE_SPLIT_YEAR
+  phase2PV: number; // years PHASE_SPLIT_YEAR+1..PROJECTION_YEARS
   terminalPV: number; // discounted terminal value
 }
 
@@ -132,7 +133,6 @@ export interface FCFYResult {
    *  rather than re-deriving a threshold, or the same stock reads differently
    *  in the detail view and the watchlist. */
   clearsHurdle: boolean | null;
-  blendedGrowth: number;
   fcfyPrice: number | null;
   fcfyPriceMOS: number | null;
 }
