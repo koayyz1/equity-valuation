@@ -397,6 +397,61 @@ export function buildPeriodsFromFacts(facts, period = 'quarterly', n = 8) {
   return { source: 'edgar', period, quarters: periods };
 }
 
+/**
+ * Trailing-twelve-month figures from EDGAR quarterly rows.
+ *
+ * This exists so the DCF's inputs come from filings we can always reach. The
+ * Yahoo quoteSummary path — previously the only TTM source — is routinely
+ * rate-limited on datacenter IPs, and when it failed the valuation silently fell
+ * back to EDGAR *annual* figures, so production and local produced different
+ * numbers for the same company with nothing to indicate it.
+ *
+ * Flows are summed over the four most recent quarters and require all four to be
+ * present (a partial sum would understate the run-rate). Balances are read from
+ * the most recent quarter. Net borrowing prefers the reported financing lines and
+ * falls back to the year-over-year change in total debt, which is the same proxy
+ * the FCFE Drivers panel uses.
+ */
+export function ttmFromQuarters(quarters) {
+  const rows = quarters || [];
+  const out = {
+    complete: false,
+    asOf: rows[0]?.asOfDate ?? null,
+    revenue: null, netIncome: null, cfo: null, capex: null, da: null,
+    cash: null, totalDebt: null, stockholdersEquity: null, netBorrowing: null,
+  };
+  if (rows.length < 4) return out;
+
+  const win = rows.slice(0, 4);
+  // Strict: every quarter must report the line, or the TTM understates it.
+  const sum = (f) => (win.every((q) => q[f] != null) ? win.reduce((a, q) => a + q[f], 0) : null);
+  // Lenient: for lumpy financing lines a missing quarter means "no activity".
+  const sumLoose = (f) =>
+    win.some((q) => q[f] != null) ? win.reduce((a, q) => a + (q[f] ?? 0), 0) : null;
+  const latest = (f) => rows[0]?.[f] ?? null;
+
+  out.revenue = sum('quarterlyTotalRevenue');
+  out.netIncome = sum('quarterlyNetIncome');
+  out.cfo = sum('quarterlyOperatingCashFlow');
+  out.capex = sum('quarterlyCapitalExpenditure');
+  out.da = sum('quarterlyDepreciationAmortization');
+  out.cash = latest('quarterlyCashCashEquivalentsAndShortTermInvestments');
+  out.totalDebt = latest('quarterlyTotalDebt');
+  out.stockholdersEquity = latest('quarterlyStockholdersEquity');
+
+  const issued = sumLoose('quarterlyDebtIssued');
+  const repaid = sumLoose('quarterlyDebtRepaid');
+  if (issued != null || repaid != null) {
+    out.netBorrowing = (issued ?? 0) + (repaid ?? 0);
+  } else if (rows.length >= 5 && rows[0]?.quarterlyTotalDebt != null && rows[4]?.quarterlyTotalDebt != null) {
+    out.netBorrowing = rows[0].quarterlyTotalDebt - rows[4].quarterlyTotalDebt;
+  }
+
+  // "Complete" means the figures the DCF actually needs are all present.
+  out.complete = out.revenue != null && out.cfo != null && out.capex != null;
+  return out;
+}
+
 // Total debt is computed inline above; add it to METRIC_DEF in a separate map
 // so we still extract LongTermDebt/ShortTermDebt independently.
 METRIC_DEF.LongTermDebt = { kind: 'instant', chain: TAG_CHAINS.longTermDebt };

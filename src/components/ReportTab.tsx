@@ -549,7 +549,9 @@ export function ReportTab({
   const [error, setError] = useState<string | null>(null);
   const [overviewExpanded, setOverviewExpanded] = useState(true);
   const [descExpanded, setDescExpanded] = useState(false);
-  const [periodMode, setPeriodMode] = useState<PeriodMode>('ttm');
+  // Default to annual: the decade-scale record is what tells you whether a
+  // business has a durable advantage. Quarterly is a drill-down, not the lead.
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('annual');
 
   // Seamless zoom between chart timeframes. On a range change the outgoing and
   // incoming charts are rendered as two layers that scale around the right edge
@@ -1268,6 +1270,39 @@ export function ReportTab({
           {/* Historical valuation bands */}
           {bands && <ValuationBands bands={bands} currency={currency} />}
 
+          <SectionRule label="Track Record" />
+
+          {/* Long-term (decade-scale) trends */}
+          {annualRows.length >= 4 && (
+            <TenYearTrends
+              annualRows={annualRows}
+              taxRate={financials?.taxRate ?? null}
+              currency={currency}
+            />
+          )}
+
+          {/* Shareholder returns — dividends + buybacks */}
+          {annualRows.length >= 2 && (
+            <ShareholderReturns
+              annualRows={annualRows}
+              price={priceData?.price ?? history?.price ?? null}
+              currency={currency}
+            />
+          )}
+
+          {/* Balance-sheet resilience */}
+          {financials && (
+            <BalanceSheetResilience
+              totalDebt={financials.totalDebt}
+              cash={financials.cash}
+              ebitda={financials.ebitda}
+              ebit={financials.ebit}
+              interestExpense={financials.interestExpense}
+              ttmFCF={ttmFCF}
+              currency={currency}
+            />
+          )}
+
           <SectionRule label="Fundamentals" />
 
           {/* Periodic financials */}
@@ -1454,37 +1489,6 @@ export function ReportTab({
               </div>
             )}
           </div>
-
-          {/* Long-term (decade-scale) trends */}
-          {annualRows.length >= 4 && (
-            <TenYearTrends
-              annualRows={annualRows}
-              taxRate={financials?.taxRate ?? null}
-              currency={currency}
-            />
-          )}
-
-          {/* Shareholder returns — dividends + buybacks */}
-          {annualRows.length >= 2 && (
-            <ShareholderReturns
-              annualRows={annualRows}
-              price={priceData?.price ?? history?.price ?? null}
-              currency={currency}
-            />
-          )}
-
-          {/* Balance-sheet resilience */}
-          {financials && (
-            <BalanceSheetResilience
-              totalDebt={financials.totalDebt}
-              cash={financials.cash}
-              ebitda={financials.ebitda}
-              ebit={financials.ebit}
-              interestExpense={financials.interestExpense}
-              ttmFCF={ttmFCF}
-              currency={currency}
-            />
-          )}
 
           {/* Company overview */}
           {profile && !profile.error && (profile.description || profile.sector) && (

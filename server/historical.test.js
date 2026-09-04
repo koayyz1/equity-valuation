@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildPeriodsFromFacts } from './historical.js';
+import { buildPeriodsFromFacts, ttmFromQuarters } from './historical.js';
 
 /**
  * EDGAR companyfacts shape:
@@ -246,5 +246,73 @@ describe('CFO bridge', () => {
       r.quarterlyChangePayables;
     // 30 + 8 + 4 − 5 + 3 = 40 = reported CFO, so the residual is zero here.
     expect(named).toBeCloseTo(r.quarterlyOperatingCashFlow, 6);
+  });
+});
+
+describe('ttmFromQuarters', () => {
+  const q = (over = {}) => ({
+    asOfDate: '2024-12-31',
+    quarterlyTotalRevenue: 100,
+    quarterlyNetIncome: 20,
+    quarterlyOperatingCashFlow: 30,
+    quarterlyCapitalExpenditure: -10,
+    quarterlyDepreciationAmortization: 5,
+    quarterlyCashCashEquivalentsAndShortTermInvestments: 500,
+    quarterlyTotalDebt: 200,
+    quarterlyStockholdersEquity: 900,
+    quarterlyDebtIssued: null,
+    quarterlyDebtRepaid: null,
+    ...over,
+  });
+  const four = () => [q(), q(), q(), q()];
+
+  it('sums flows over four quarters and reads balances from the latest', () => {
+    const rows = [q({ quarterlyCashCashEquivalentsAndShortTermInvestments: 777 }), q(), q(), q()];
+    const t = ttmFromQuarters(rows);
+    expect(t.complete).toBe(true);
+    expect(t.revenue).toBe(400);
+    expect(t.cfo).toBe(120);
+    expect(t.capex).toBe(-40);
+    expect(t.da).toBe(20);
+    expect(t.cash).toBe(777); // instant, not summed
+    expect(t.totalDebt).toBe(200);
+  });
+
+  it('refuses a partial sum when a quarter is missing the line', () => {
+    // A partial TTM would understate the run-rate, which is worse than saying so.
+    const rows = four();
+    rows[2].quarterlyOperatingCashFlow = null;
+    const t = ttmFromQuarters(rows);
+    expect(t.cfo).toBeNull();
+    expect(t.complete).toBe(false);
+    expect(t.revenue).toBe(400); // unaffected lines still sum
+  });
+
+  it('is incomplete with fewer than four quarters', () => {
+    const t = ttmFromQuarters([q(), q()]);
+    expect(t.complete).toBe(false);
+    expect(t.revenue).toBeNull();
+  });
+
+  it('prefers reported financing lines for net borrowing', () => {
+    const rows = four().map((r) => ({ ...r, quarterlyDebtIssued: 10, quarterlyDebtRepaid: -4 }));
+    expect(ttmFromQuarters(rows).netBorrowing).toBe(24); // (10 − 4) × 4
+  });
+
+  it('treats a missing financing quarter as no activity, not unknown', () => {
+    const rows = four().map((r, i) => ({ ...r, quarterlyDebtRepaid: i === 0 ? -8 : null }));
+    expect(ttmFromQuarters(rows).netBorrowing).toBe(-8);
+  });
+
+  it('falls back to the year-over-year change in total debt', () => {
+    // Filers that never report issuance/repayment in a tag we capture.
+    const rows = [...four(), q({ quarterlyTotalDebt: 150 })];
+    expect(ttmFromQuarters(rows).netBorrowing).toBe(50); // 200 − 150
+  });
+
+  it('returns a null-shaped result for empty input rather than throwing', () => {
+    const t = ttmFromQuarters([]);
+    expect(t.complete).toBe(false);
+    expect(t.asOf).toBeNull();
   });
 });

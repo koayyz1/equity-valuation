@@ -9,7 +9,7 @@ import {
   getCompanyTickers,
   searchCompanies,
 } from './edgar.js';
-import { getEdgarPeriodicFinancials } from './historical.js';
+import { getEdgarPeriodicFinancials, ttmFromQuarters } from './historical.js';
 import { getCompanySummary } from './summary.js';
 import { getCompanySummaryGemini, getCompanyDeepDive } from './gemini.js';
 import {
@@ -97,176 +97,170 @@ app.get('/api/financials/:cik', async (req, res) => {
     const cacheKey = `financials:${req.params.cik}:${ticker || ''}`;
 
     const merged = await withCache(cacheKey, TTL.FUNDAMENTALS, async () => {
-    // Fetch EDGAR + Yahoo financials in parallel when ticker is provided.
-    const [edgar, yahoo] = await Promise.all([
+    // Fetch EDGAR annual, EDGAR quarterly (for TTM) and Yahoo in parallel.
+    const [edgar, edgarQuarters, yahoo] = await Promise.all([
       getFinancials(req.params.cik),
-      ticker ? getYahooFinancials(ticker) : Promise.resolve(null),
+      getEdgarPeriodicFinancials(req.params.cik, 'quarterly', 8).catch(() => null),
+      // DISABLE_YAHOO forces the EDGAR-only path. Production is frequently there
+      // involuntarily (Yahoo rate-limits datacenter IPs), so being able to
+      // reproduce it deliberately is what keeps that path honest.
+      ticker && !process.env.DISABLE_YAHOO
+        ? getYahooFinancials(ticker)
+        : Promise.resolve(null),
     ]);
 
-    // Merge: Yahoo wins for Revenue (TTM), Cash, CapEx, Net Borrowing.
-    // D&A stays from EDGAR — Yahoo's includes content amortization (inflates NFLX etc.).
     const merged = { ...edgar };
-    // When the Yahoo path is down the merge below is skipped entirely and the
-    // DCF silently runs on EDGAR annuals instead of TTM. Flag it so the client
-    // can say so rather than presenting degraded inputs as normal.
     merged.yahooOk = !!yahoo;
 
+    // ── TTM from EDGAR quarterly, applied first ──────────────────────────────
+    // TTM is the right baseline for the DCF: it captures the current run-rate
+    // rather than a fiscal year that may be most of a year stale. Deriving it
+    // from EDGAR rather than Yahoo means the valuation no longer depends on a
+    // path that is routinely rate-limited on datacenter IPs — previously that
+    // failure silently swapped in EDGAR *annual* figures, so the same company
+    // valued differently in production than locally with no visible cause.
+    const ttm = ttmFromQuarters(edgarQuarters?.quarters);
+    merged.ttmOk = !!ttm.complete;
+    merged.ttmAsOf = ttm.asOf;
+    const applyTtm = (field, value) => {
+      if (value == null) return;
+      merged[field] = value;
+      merged._sources = { ...(merged._sources || {}), [field]: 'edgar' };
+    };
+    if (ttm.complete) {
+      applyTtm('revenue', ttm.revenue);
+      applyTtm('netIncome', ttm.netIncome);
+      applyTtm('cfo', ttm.cfo);
+      applyTtm('capex', ttm.capex);
+      applyTtm('da', ttm.da);
+      applyTtm('cash', ttm.cash);
+      applyTtm('totalDebt', ttm.totalDebt);
+      applyTtm('stockholdersEquity', ttm.stockholdersEquity);
+      applyTtm('netBorrowing', ttm.netBorrowing);
+    }
+
+    // ── Yahoo, as a supplement ───────────────────────────────────────────────
+    // Only fills what EDGAR TTM could not supply, plus the fields EDGAR has no
+    // equivalent for (beta, goodwill). Keeping EDGAR authoritative is what makes
+    // the numbers reproducible whether or not Yahoo answers.
     if (yahoo) {
       merged._yahoo = yahoo; // pass raw Yahoo data for debugging
 
-      // Revenue: prefer Yahoo TTM (sum of 4 most recent quarters) over annual FY.
-      // TTM is the correct baseline for DCF — it captures the most recent run-rate
-      // and avoids understating revenue for companies mid-way through a fiscal year
-      // (e.g. MSFT with a June FY-end showing FY2024 annual instead of rolling TTM).
-      if (yahoo.ttmRevenue != null) {
-        merged.revenue = yahoo.ttmRevenue;
-      } else if (yahoo.annualRevenue != null) {
-        merged.revenue = yahoo.annualRevenue;
-      }
-
-      // Net income: prefer TTM over annual.
-      if (yahoo.ttmNetIncome != null) {
-        merged.netIncome = yahoo.ttmNetIncome;
-      }
-
-      // CFO: prefer TTM over EDGAR annual.
-      if (yahoo.ttmCFO != null) {
-        merged.cfo = yahoo.ttmCFO;
-      }
-
-      // CapEx: prefer TTM quarterly sum; fall back to Yahoo annual.
-      if (yahoo.ttmCapex != null) {
-        merged.capex = yahoo.ttmCapex;
-      } else if (yahoo.capitalExpenditures != null) {
-        merged.capex = yahoo.capitalExpenditures;
-      }
-
-      // Cash: prefer Yahoo "Cash, cash equivalents & short-term investments"
-      if (yahoo.cashAndShortTermInvestments != null) {
-        merged.cash = yahoo.cashAndShortTermInvestments;
-      }
-
-      // D&A: keep EDGAR value. Yahoo's D&A includes content amortization
-      // which grossly inflates D&A for media companies (e.g., NFLX).
-      // EDGAR's DepreciationDepletionAndAmortization is the right figure.
-
-      // Net Borrowing: prefer Yahoo's annualNetIssuancePaymentsOfDebt.
-      if (yahoo.netBorrowings != null) {
-        merged.netBorrowing = yahoo.netBorrowings;
-      }
-
-      // Total Debt, Equity, and Goodwill from Yahoo for ROIC and WACC calculations
-      if (yahoo.totalDebt != null) {
-        merged.totalDebt = yahoo.totalDebt;
-      }
-      if (yahoo.stockholdersEquity != null) {
-        merged.stockholdersEquity = yahoo.stockholdersEquity;
-      }
-      if (yahoo.goodwill != null) {
-        merged.goodwill = yahoo.goodwill;
-      }
-
-      // Beta from Yahoo for WACC calculation
-      if (yahoo.beta != null) {
-        merged.beta = yahoo.beta;
-      }
-
-      // Recompute derived fields that depend on the merged values
-      merged.ebitda =
-        merged.ebit != null && merged.da != null ? merged.ebit + merged.da : null;
-
-      // FCF: prefer Yahoo TTM directly; otherwise derive from TTM CFO + TTM CapEx.
-      if (yahoo.ttmFCF != null) {
-        merged.fcf = yahoo.ttmFCF;
-      } else if (merged.cfo != null && merged.capex != null) {
-        merged.fcf = merged.cfo + merged.capex;
-      }
-
-      // FCFE = FCF + Net Borrowing
-      merged.fcfe =
-        merged.cfo != null && merged.capex != null
-          ? merged.cfo + merged.capex + (merged.netBorrowing ?? 0)
-          : null;
-
-      // NOPAT, Invested Capital, ROIC recompute
-      // Use clamped tax rate (0–1) to handle companies with tax benefits.
-      // Fall back to 21% US statutory rate when EDGAR lacks tax data.
-      const rawTaxRate = merged.taxRate;
-      const clampedTaxRate =
-        rawTaxRate != null ? Math.max(0, Math.min(1, rawTaxRate)) : 0.21;
-      const ebit = merged.ebit;
-      merged.nopat =
-        ebit != null ? ebit * (1 - clampedTaxRate) : null;
-
-      // Invested Capital = Equity + Debt - Cash - Goodwill
-      // Deducting goodwill aligns with StockAnalysis.com's IC methodology.
-      // Guard: only deduct goodwill if IC stays positive — negative IC is
-      // meaningless for ROIC (e.g. MSCI with buyback-driven negative equity).
-      const equity = merged.stockholdersEquity;
-      const debt = merged.totalDebt ?? 0;
-      const cashVal = merged.cash;
-      const goodwillVal = merged.goodwill ?? 0;
-      if (equity != null && cashVal != null) {
-        const icBase = equity + debt - cashVal;
-        // Only deduct goodwill when equity is positive AND the result stays positive.
-        // Skip deduction for negative-equity companies (e.g. buyback-driven leveraged
-        // balance sheets like MSCI) to avoid artificially tiny denominators.
-        const canDeduct = equity >= 0 && goodwillVal > 0 && (icBase - goodwillVal) > 0;
-        merged.investedCapital = canDeduct ? icBase - goodwillVal : (icBase > 0 ? icBase : null);
-      } else if (
-        merged.totalAssets != null &&
-        cashVal != null &&
-        merged.currentLiabilities != null
-      ) {
-        // Fallback: TotalAssets - Cash - CurrentLiabilities - Goodwill
-        const icBase = merged.totalAssets - cashVal - merged.currentLiabilities;
-        const canDeduct = goodwillVal > 0 && (icBase - goodwillVal) > 0;
-        merged.investedCapital = canDeduct ? icBase - goodwillVal : (icBase > 0 ? icBase : null);
-      }
-
-      merged.roic =
-        merged.nopat != null &&
-        merged.investedCapital != null &&
-        merged.investedCapital !== 0
-          ? merged.nopat / merged.investedCapital
-          : null;
-
-      // FCF CAGR: only override EDGAR's when Yahoo has enough history for 5Y CAGR
-      if (yahoo.fcfHistory?.length >= 6) {
-        const sorted = [...yahoo.fcfHistory].sort((a, b) => b.fy - a.fy);
-        const latest = sorted[0];
-        const target = sorted.find((e) => latest.fy - e.fy >= 5);
-        if (target && target.value > 0 && latest.value > 0) {
-          const years = latest.fy - target.fy;
-          merged.fcfCAGR = Math.pow(latest.value / target.value, 1 / years) - 1;
-          merged.fcfHistory = sorted.map((e) => ({ fy: e.fy, fcf: e.value }));
-        }
-      }
-
-      // Per-field provenance: which source supplied each displayed value. Mirrors
-      // the merge conditions above so the frontend can badge each metric.
-      merged._sources = {
-        revenue: yahoo.ttmRevenue != null || yahoo.annualRevenue != null ? 'yahoo' : 'edgar',
-        netIncome: yahoo.ttmNetIncome != null ? 'yahoo' : 'edgar',
-        cfo: yahoo.ttmCFO != null ? 'yahoo' : 'edgar',
-        capex: yahoo.ttmCapex != null || yahoo.capitalExpenditures != null ? 'yahoo' : 'edgar',
-        cash: yahoo.cashAndShortTermInvestments != null ? 'yahoo' : 'edgar',
-        netBorrowing: yahoo.netBorrowings != null ? 'yahoo' : 'edgar',
-        totalDebt: yahoo.totalDebt != null ? 'yahoo' : 'edgar',
-        stockholdersEquity: yahoo.stockholdersEquity != null ? 'yahoo' : 'edgar',
-        goodwill: yahoo.goodwill != null ? 'yahoo' : 'edgar',
-        fcfe: yahoo.ttmCFO != null || yahoo.ttmCapex != null ? 'yahoo' : 'edgar',
-        da: 'edgar', // intentionally kept from EDGAR (Yahoo over-counts amortization)
+      // Fills a field only where EDGAR TTM did not already supply it. Yahoo's
+      // TTM still beats an EDGAR *annual* figure, so it applies whenever the
+      // quarterly TTM was incomplete.
+      const supplied = new Set(Object.keys(merged._sources || {}));
+      const fill = (field, ...candidates) => {
+        if (supplied.has(field)) return;
+        const value = candidates.find((v) => v != null);
+        if (value == null) return;
+        merged[field] = value;
+        merged._sources = { ...(merged._sources || {}), [field]: 'yahoo' };
       };
-      merged._asOf = {
-        edgarFiling: edgar.filingDate ?? null,
-        yahooTtm: yahoo.ttmAsOf ?? null,
-        yahooCash: yahoo.cashAsOf ?? null,
-      };
-    } else {
-      // No Yahoo data — everything came from EDGAR.
-      merged._asOf = { edgarFiling: edgar.filingDate ?? null, yahooTtm: null, yahooCash: null };
+
+      fill('revenue', yahoo.ttmRevenue, yahoo.annualRevenue);
+      fill('netIncome', yahoo.ttmNetIncome);
+      fill('cfo', yahoo.ttmCFO);
+      fill('capex', yahoo.ttmCapex, yahoo.capitalExpenditures);
+      fill('cash', yahoo.cashAndShortTermInvestments);
+      fill('netBorrowing', yahoo.netBorrowings);
+      fill('totalDebt', yahoo.totalDebt);
+      fill('stockholdersEquity', yahoo.stockholdersEquity);
+
+      // D&A deliberately stays with EDGAR: Yahoo's includes content
+      // amortization, which grossly inflates it for media companies (NFLX).
+
+      // No EDGAR equivalent — always take these from Yahoo when present.
+      if (yahoo.goodwill != null) merged.goodwill = yahoo.goodwill;
+      if (yahoo.beta != null) merged.beta = yahoo.beta;
+
     }
+
+    // ── Derived fields ───────────────────────────────────────────────────────
+    // Recomputed from whatever the merge settled on. This must sit OUTSIDE the
+    // Yahoo block: it previously ran only when Yahoo answered, so with Yahoo
+    // down the FCFE the DCF consumes was never rebuilt from the merged inputs.
+    // Recompute derived fields that depend on the merged values
+    merged.ebitda =
+      merged.ebit != null && merged.da != null ? merged.ebit + merged.da : null;
+
+    // FCF = CFO + CapEx (CapEx already negative).
+    if (merged.cfo != null && merged.capex != null) {
+      merged.fcf = merged.cfo + merged.capex;
+    }
+
+    // FCFE = FCF + Net Borrowing
+    merged.fcfe =
+      merged.cfo != null && merged.capex != null
+        ? merged.cfo + merged.capex + (merged.netBorrowing ?? 0)
+        : null;
+
+    // NOPAT, Invested Capital, ROIC recompute
+    // Use clamped tax rate (0–1) to handle companies with tax benefits.
+    // Fall back to 21% US statutory rate when EDGAR lacks tax data.
+    const rawTaxRate = merged.taxRate;
+    const clampedTaxRate =
+      rawTaxRate != null ? Math.max(0, Math.min(1, rawTaxRate)) : 0.21;
+    const ebit = merged.ebit;
+    merged.nopat =
+      ebit != null ? ebit * (1 - clampedTaxRate) : null;
+
+    // Invested Capital = Equity + Debt - Cash - Goodwill
+    // Deducting goodwill aligns with StockAnalysis.com's IC methodology.
+    // Guard: only deduct goodwill if IC stays positive — negative IC is
+    // meaningless for ROIC (e.g. MSCI with buyback-driven negative equity).
+    const equity = merged.stockholdersEquity;
+    const debt = merged.totalDebt ?? 0;
+    const cashVal = merged.cash;
+    const goodwillVal = merged.goodwill ?? 0;
+    if (equity != null && cashVal != null) {
+      const icBase = equity + debt - cashVal;
+      // Only deduct goodwill when equity is positive AND the result stays positive.
+      // Skip deduction for negative-equity companies (e.g. buyback-driven leveraged
+      // balance sheets like MSCI) to avoid artificially tiny denominators.
+      const canDeduct = equity >= 0 && goodwillVal > 0 && (icBase - goodwillVal) > 0;
+      merged.investedCapital = canDeduct ? icBase - goodwillVal : (icBase > 0 ? icBase : null);
+    } else if (
+      merged.totalAssets != null &&
+      cashVal != null &&
+      merged.currentLiabilities != null
+    ) {
+      // Fallback: TotalAssets - Cash - CurrentLiabilities - Goodwill
+      const icBase = merged.totalAssets - cashVal - merged.currentLiabilities;
+      const canDeduct = goodwillVal > 0 && (icBase - goodwillVal) > 0;
+      merged.investedCapital = canDeduct ? icBase - goodwillVal : (icBase > 0 ? icBase : null);
+    }
+
+    merged.roic =
+      merged.nopat != null &&
+      merged.investedCapital != null &&
+      merged.investedCapital !== 0
+        ? merged.nopat / merged.investedCapital
+        : null;
+
+    // Yahoo-only refinement: a longer FCF history than EDGAR exposes.
+    if (yahoo?.fcfHistory?.length >= 6) {
+      const sorted = [...yahoo.fcfHistory].sort((a, b) => b.fy - a.fy);
+      const latest = sorted[0];
+      const target = sorted.find((e) => latest.fy - e.fy >= 5);
+      if (target && target.value > 0 && latest.value > 0) {
+        const years = latest.fy - target.fy;
+        merged.fcfCAGR = Math.pow(latest.value / target.value, 1 / years) - 1;
+        merged.fcfHistory = sorted.map((e) => ({ fy: e.fy, fcf: e.value }));
+      }
+    }
+
+    // Provenance is accumulated during the merge above rather than re-derived
+    // here — an independently-written copy of the merge conditions drifts the
+    // moment the merge changes, which is how it previously came to claim 'yahoo'
+    // for fields Yahoo had not supplied.
+    merged._sources = { da: 'edgar', ...(merged._sources || {}) };
+    merged._asOf = {
+      edgarFiling: edgar.filingDate ?? null,
+      edgarTtm: ttm.asOf ?? null,
+      yahooTtm: yahoo?.ttmAsOf ?? null,
+      yahooCash: yahoo?.cashAsOf ?? null,
+    };
 
     merged.wacc = null; // computed on frontend with price data
     return merged;
