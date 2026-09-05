@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
 import { IconClipboard, IconChart, IconScale, IconShield, IconFlask } from './icons';
+import { ThesisJournal } from './ThesisJournal';
 
 interface DeepDiveSection {
   key: 'overview' | 'segments' | 'proscons' | 'scorecard';
@@ -23,14 +24,14 @@ const SECTIONS: DeepDiveSection[] = [
   },
   {
     key: 'proscons',
-    title: 'Pros & Cons',
-    subtitle: 'Forward-looking opportunities and risks',
+    title: 'Evidence For & Against',
+    subtitle: 'Checkable facts bearing on durability — no verdict, that one is yours',
     icon: <IconScale size={16} />,
   },
   {
     key: 'scorecard',
-    title: 'Moat & Risks Scorecard',
-    subtitle: 'Rated dimensions — moat, pricing power, balance sheet, risks (5 = strong / low risk)',
+    title: 'Evidence by Dimension',
+    subtitle: 'Strongest fact for and against on moat, pricing power, balance sheet and risks',
     icon: <IconShield size={16} />,
   },
 ];
@@ -53,71 +54,6 @@ function relativeAge(iso: string): string | null {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-interface ScorecardRow {
-  dim: string;
-  score: number;
-  why: string;
-}
-
-// Parse "Dimension | N/5 | justification" lines. Returns null when the model
-// ignored the format (caller falls back to markdown rendering).
-function parseScorecard(text: string): ScorecardRow[] | null {
-  const rows: ScorecardRow[] = [];
-  for (const raw of text.split('\n')) {
-    const line = raw.trim().replace(/^[•*-]\s*/, '');
-    const m = line.match(/^\**([^|*]+?)\**\s*\|\s*(\d(?:\.\d)?)\s*\/\s*5\s*\|\s*(.+)$/);
-    if (m) rows.push({ dim: m[1].trim(), score: parseFloat(m[2]), why: m[3].trim() });
-  }
-  return rows.length >= 4 ? rows : null;
-}
-
-function scoreClasses(score: number): string {
-  if (score >= 4) return 'bg-green-900/60 text-green-300 border-green-700';
-  if (score >= 3) return 'bg-yellow-900/60 text-yellow-300 border-yellow-700';
-  return 'bg-red-900/60 text-red-300 border-red-700';
-}
-
-function Scorecard({ rows }: { rows: ScorecardRow[] }) {
-  const overall = rows.find((r) => r.dim.toLowerCase() === 'overall');
-  const dims = rows.filter((r) => r !== overall);
-  return (
-    <div className="space-y-2 py-1">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-        {dims.map((r) => (
-          <div key={r.dim} className="bg-gray-950/50 border border-gray-800 rounded-lg p-2.5 flex gap-3">
-            <span
-              className={`shrink-0 self-start px-1.5 py-0.5 rounded border font-mono text-xs font-bold ${scoreClasses(r.score)}`}
-            >
-              {r.score}/5
-            </span>
-            <div>
-              <div className="text-sm font-medium text-gray-200">{r.dim}</div>
-              <div className="text-[11px] text-gray-400 leading-relaxed mt-0.5">{r.why}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-      {overall && (
-        <div className="border border-gray-700 bg-gray-800/40 rounded-lg p-3 flex gap-3 items-start">
-          <span
-            className={`shrink-0 px-2 py-0.5 rounded border font-mono text-sm font-bold ${scoreClasses(overall.score)}`}
-          >
-            {overall.score}/5
-          </span>
-          <div>
-            <div className="text-sm font-semibold text-gray-100">Overall</div>
-            <div className="text-xs text-gray-300 leading-relaxed mt-0.5">{overall.why}</div>
-          </div>
-        </div>
-      )}
-      <div className="text-[10px] text-gray-600">
-        Risk dimensions (Disruption, Regulatory, Cyclicality) are inverted: 5 = low risk.
-      </div>
-    </div>
-  );
-}
-
-// Render inline **bold** spans within a string.
 function renderInline(text: string): React.ReactNode {
   const parts = text.split(/(\*\*[^*]+\*\*)/g);
   if (parts.length === 1) return text;
@@ -282,11 +218,7 @@ function SectionCard({
                 : error}
             </div>
           ) : data ? (
-            section.key === 'scorecard' && parseScorecard(data.content) ? (
-              <Scorecard rows={parseScorecard(data.content)!} />
-            ) : (
-              <div className="space-y-0.5 py-1">{parseMarkdown(data.content)}</div>
-            )
+            <div className="space-y-0.5 py-1">{parseMarkdown(data.content)}</div>
           ) : (
             <div className="text-xs text-gray-600 py-4 text-center">
               Click <span className="text-blue-400 font-medium">Generate</span> to run deep research on this company using Gemini with live web search.
@@ -316,8 +248,14 @@ export function DeepDiveTab({ ticker }: DeepDiveTabProps) {
     <div className="space-y-4">
       <div className="flex items-baseline justify-between">
         <h2 className="text-sm font-semibold text-gray-100">Deep Dive — {ticker}</h2>
-        <span className="text-[11px] text-gray-500">Powered by Google Gemini + web search</span>
+        <span className="text-[11px] text-gray-500">Evidence via Google Gemini + web search</span>
       </div>
+      <ThesisJournal ticker={ticker} />
+      <p className="text-[10px] text-gray-600 -mt-1 leading-relaxed">
+        Everything below is research, not conclusions. The model is asked to assemble checkable
+        facts and explicitly not to score or recommend — a rating grounded in web search returns the
+        consensus view, which is the one thing an owner gains nothing by holding.
+      </p>
       {SECTIONS.map((s) => (
         <SectionCard key={s.key} section={s} ticker={ticker} />
       ))}

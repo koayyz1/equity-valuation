@@ -24,6 +24,7 @@ import { TenYearTrends } from './TenYearTrends';
 import { ShareholderReturns } from './ShareholderReturns';
 import { BalanceSheetResilience } from './BalanceSheetResilience';
 import { FcfDrivers } from './FcfDrivers';
+import { CapitalAllocation } from './CapitalAllocation';
 import { IconChart } from './icons';
 
 type RangeKey = '1D' | '5D' | '1M' | '6M' | 'YTD' | '1Y' | '5Y' | 'MAX';
@@ -74,6 +75,8 @@ interface QuarterRow {
   quarterlyDeferredTax: number | null;
   quarterlyIntangibleAmortization: number | null;
   quarterlyAssetDisposals: number | null;
+  quarterlyAcquisitions: number | null;
+  quarterlyBuybacks: number | null;
   quarterlyPPE: number | null;
   quarterlyDividendsPaid: number | null;
   quarterlyTotalAssets: number | null;
@@ -1271,6 +1274,15 @@ export function ReportTab({
           {bands && <ValuationBands bands={bands} currency={currency} />}
 
           <SectionRule label="Track Record" />
+
+          {/* Capital allocation — where a decade of cash went and what it earned */}
+          {annualRows.length >= 3 && (
+            <CapitalAllocation
+              annualRows={annualRows}
+              taxRate={financials?.taxRate ?? null}
+              currency={currency}
+            />
+          )}
 
           {/* Long-term (decade-scale) trends */}
           {annualRows.length >= 4 && (

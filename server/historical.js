@@ -192,6 +192,10 @@ const METRIC_DEF = {
   // maintenance-capex proxy. Asset disposals offset gross capex where reported.
   IntangibleAmortization: { kind: 'flow', chain: TAG_CHAINS.intangibleAmortization, ytd: true },
   AssetDisposals: { kind: 'flow', chain: TAG_CHAINS.assetDisposals, ytd: true },
+  // Capital deployment outside PP&E, for the allocation scorecard. Reported as
+  // positive magnitudes; negated so they read as uses of cash alongside capex.
+  Acquisitions: { kind: 'flow', chain: TAG_CHAINS.acquisitions, ytd: true, sign: -1 },
+  Buybacks: { kind: 'flow', chain: TAG_CHAINS.buybacks, ytd: true, sign: -1 },
   // Net PP&E (instant) for the revenue-intensity capex split.
   PPE: { kind: 'instant', chain: TAG_CHAINS.ppe },
   // Financing-section debt flows for the Net Borrowing breakdown. Issuance is an

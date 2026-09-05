@@ -165,24 +165,29 @@ const DEEPDIVE_PROMPTS = {
     `Do not number segments or sub-sections.`,
 
   proscons: (subject) =>
-    `For ${subject}, give 3–5 forward-looking pros and 3–5 forward-looking cons. ` +
-    `Pros should highlight genuine opportunities the company is well-positioned to capture. ` +
-    `Cons should highlight real risks or headwinds it faces. ` +
-    `Use the web_search tool to ground each point in recent news or market data. ` +
-    `Format: two sections with headers "## Pros" and "## Cons", each containing bullet points ` +
-    `starting with "•" — one sentence per bullet with a cited date (Month YYYY) at the end.`,
+    `For ${subject}, assemble the EVIDENCE bearing on the investment case — do not ` +
+    `render a verdict, score, or recommendation. Give 3–5 pieces of evidence that the ` +
+    `business is durable and 3–5 that it is vulnerable. Each must be a specific, ` +
+    `checkable fact — a number, a contract, a ruling, a launch, a market-share move — ` +
+    `not an opinion or an adjective. Use the web_search tool to ground every item. ` +
+    `Format: two sections with headers "## Evidence For" and "## Evidence Against", ` +
+    `each containing bullet points starting with "•", one fact per bullet with a cited ` +
+    `date (Month YYYY). Do not add a summary, conclusion, or overall judgement — the ` +
+    `reader forms their own.`,
 
   scorecard: (subject) =>
-    `Rate ${subject} on the following dimensions, scoring each from 1 (weak) to 5 (strong). ` +
-    `For the risk dimensions — Disruption Risk, Regulatory Risk, and Cyclicality — a score of 5 ` +
-    `means LOW risk (favourable) and 1 means HIGH risk. ` +
-    `Use the web_search tool to ground each rating in recent evidence. ` +
-    `Output format (follow exactly — one line per dimension, nothing before or after the lines): ` +
-    `"Dimension Name | N/5 | one-sentence justification citing evidence (Month YYYY)". ` +
-    `Rate these dimensions in this order: Economic Moat, Pricing Power, Balance Sheet, ` +
+    `For ${subject}, lay out the evidence on each dimension below WITHOUT scoring or ` +
+    `concluding. For each, give the single strongest piece of evidence FOR and the ` +
+    `single strongest AGAINST, each a specific checkable fact with a date. If the ` +
+    `evidence is thin or absent for a dimension, say "insufficient evidence" rather ` +
+    `than inferring. Use the web_search tool to ground every item. ` +
+    `Dimensions, in this order: Economic Moat, Pricing Power, Balance Sheet, ` +
     `Capital Allocation, Growth Runway, Disruption Risk, Regulatory Risk, Cyclicality. ` +
-    `Finish with a final line: "Overall | N/5 | one-sentence verdict". ` +
-    `Do not use markdown headers, bullets, or numbering — only the pipe-delimited lines.`,
+    `Output format (follow exactly — three lines per dimension, nothing else): ` +
+    `"## Dimension Name" then "• For: <fact> (Month YYYY)" then ` +
+    `"• Against: <fact> (Month YYYY)". ` +
+    `Do not assign ratings, numbers out of five, or an overall verdict.`,
+
 };
 
 export async function getCompanyDeepDive(ticker, section, companyName, force = false) {

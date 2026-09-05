@@ -75,6 +75,20 @@ export const TAG_CHAINS = {
     { taxonomy: 'us-gaap', tag: 'ProceedsFromSaleOfProductiveAssets' },
     { taxonomy: 'ifrs-full', tag: 'ProceedsFromSalesOfPropertyPlantAndEquipment' },
   ],
+  // Capital deployed outside PP&E. Acquisitions are how capital allocation skill
+  // (or its absence) usually shows up, and were previously invisible: the model
+  // counted only PP&E purchases as capex, so a serial acquirer looked
+  // capital-light. Both are cash outflows reported as positive magnitudes.
+  acquisitions: [
+    { taxonomy: 'us-gaap', tag: 'PaymentsToAcquireBusinessesNetOfCashAcquired' },
+    { taxonomy: 'us-gaap', tag: 'PaymentsToAcquireBusinessesGross' },
+    { taxonomy: 'ifrs-full', tag: 'CashFlowsUsedInObtainingControlOfSubsidiariesOrOtherBusinessesClassifiedAsInvestingActivities' },
+  ],
+  buybacks: [
+    { taxonomy: 'us-gaap', tag: 'PaymentsForRepurchaseOfCommonStock' },
+    { taxonomy: 'us-gaap', tag: 'PaymentsForRepurchaseOfEquity' },
+    { taxonomy: 'us-gaap', tag: 'TreasuryStockValueAcquiredCostMethod' },
+  ],
   // Net PP&E (instant) — powers the Greenwald revenue-intensity capex estimate.
   ppe: [
     { taxonomy: 'us-gaap', tag: 'PropertyPlantAndEquipmentNet' },
